@@ -508,11 +508,41 @@ def run_command(engine, action):
 
 
 CHAT_MODELS = ['gemini-flash-lite-latest', 'gemini-3.6-flash', 'gemini-flash-latest']
+GROQ_MODELS = ['llama-3.3-70b-versatile', 'openai/gpt-oss-120b']
+GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+
+
+def ask_groq(api_key, model, lang, question, context, timeout=6, name='Bono', history=None):
+    """Groq (zdarma, velmi rychlé): OpenAI-kompatibilní chat API."""
+    msgs = [{'role': 'system', 'content': SYSTEM_PROMPT.get(lang, SYSTEM_PROMPT['en'])
+             .replace('{name}', name)}]
+    for q, a in (history or [])[-6:]:
+        msgs += [{'role': 'user', 'content': 'DRIVER: ' + q}, {'role': 'assistant', 'content': a}]
+    msgs.append({'role': 'user', 'content': 'DATA (JSON):\n' + json.dumps(context, ensure_ascii=False) +
+                 '\n\nDRIVER: ' + question})
+    body = {'model': model, 'messages': msgs, 'temperature': 0.3, 'max_tokens': 400}
+    if model.startswith('openai/gpt-oss'):
+        body['reasoning_effort'] = 'low'
+    req = urllib.request.Request(GROQ_URL, data=json.dumps(body).encode('utf-8'), method='POST',
+                                 headers={'Content-Type': 'application/json',
+                                          'Authorization': 'Bearer ' + api_key,
+                                          'User-Agent': 'bono-f1-engineer'})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ssl.create_default_context()) as r:
+            data = json.loads(r.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read().decode('utf-8'))['error']['message']
+        except (ValueError, KeyError, OSError):
+            msg = str(e)
+        raise GeminiError('groq %d: %s' % (e.code, msg))
+    text = (data['choices'][0]['message'].get('content') or '').strip()
+    return text or None
 _model_down = {}          # model -> čas, do kdy ho přeskakovat (přetížení / timeout)
 
 
 def ask_fast(api_key, models, lang, question, context, name='Bono', history=None,
-             deadline=6.0, hedge_after=2.5):
+             deadline=6.0, hedge_after=2.5, groq_key=None):
     """Konverzace v závodě: první model hned, druhý souběžně po hedge_after s, celkem max
     deadline s. Vrátí (text, model) nebo vyhodí chybu (pak odpoví offline)."""
     from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
@@ -523,8 +553,12 @@ def ask_fast(api_key, models, lang, question, context, name='Bono', history=None
     t0 = time.time()
 
     def submit(m):
-        futs[pool.submit(ask_gemini, api_key, m, lang, question, context, deadline, name,
-                         None, 2048, history)] = m
+        if m.startswith('groq:'):
+            futs[pool.submit(ask_groq, groq_key, m[5:], lang, question, context, deadline, name,
+                             history)] = m
+        else:
+            futs[pool.submit(ask_gemini, api_key, m, lang, question, context, deadline, name,
+                             None, 2048, history)] = m
     submit(order[0])
     nxt = 1
     last = None
@@ -564,15 +598,23 @@ def answer(engine, question):
             text = run_command(engine, cmd)
         return text, 'command'
     key = engine.settings.get('gemini_key')
-    if key:
+    groq = engine.settings.get('groq_key')
+    if key or groq:
         try:
             with engine.lock:
                 history = list(engine.chat_history)
-            first = engine.settings.get('chat_model') or CHAT_MODELS[0]
-            models = [first] + [m for m in CHAT_MODELS if m != first]
+            models = []
+            if groq:   # Groq první (rychlý), Gemini jako souběžná záloha
+                gm = engine.settings.get('groq_model') or GROQ_MODELS[0]
+                models += ['groq:' + m for m in [gm] + [x for x in GROQ_MODELS if x != gm]][:1]
+            if key:
+                first = engine.settings.get('chat_model') or CHAT_MODELS[0]
+                models += [first] + [m for m in CHAT_MODELS if m != first]
+            if groq:
+                models += ['groq:' + m for m in GROQ_MODELS if 'groq:' + m not in models]
             text, model = ask_fast(key, models, engine.lang, question, engine.context_for_llm(),
                                    name=engine.settings.get('engineer_name', 'Bono'),
-                                   history=history)
+                                   history=history, groq_key=groq)
             engine.last_llm_model = model
             with engine.lock:
                 engine.chat_history = (engine.chat_history + [(question, text)])[-10:]

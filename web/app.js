@@ -70,8 +70,8 @@ function render() {
   if (document.querySelector('#tab-corners.active')) renderCorners(s);
   if (document.querySelector('#tab-laps.active')) renderLaps(s);
   if (document.querySelector('#tab-race.active')) renderRace(s);
-  $('aiMode').textContent = s.has_gemini
-    ? `Gemini online${s.llm && s.llm.model ? ' · ' + s.llm.model : ''}${s.llm && s.llm.error ? ' · poslední chyba: ' + s.llm.error : ''}`
+  $('aiMode').textContent = (s.has_gemini || s.has_groq)
+    ? `AI online (${[s.has_groq && 'Groq', s.has_gemini && 'Gemini'].filter(Boolean).join(' + ')})${s.llm && s.llm.model ? ' · ' + s.llm.model : ''}${s.llm && s.llm.error ? ' · poslední chyba: ' + s.llm.error : ''}`
     : 'Offline režim. Pro chytřejší odpovědi vlož Gemini klíč v Nastavení.';
 
   const zKey = JSON.stringify((s.regs && (s.regs.aero_zones || s.regs.drs_zones)) || []);
@@ -949,6 +949,7 @@ function fillSettings(s) {
   $('sVoice').checked = st.voice !== false;
   $('sKey').value = s.has_gemini ? '***' : '';
   $('sModel').value = st.gemini_model || '';
+  $('sGroq').value = s.has_groq ? '***' : '';
   $('sName').value = st.engineer_name || 'Bono';
   $('sWake').value = st.wake_word || 'bono';
   $('sVoiceEngine').value = st.voice_engine || 'mixed';
@@ -963,6 +964,7 @@ $('saveBtn').onclick = async () => {
     gemini_key: $('sKey').value.trim(), gemini_model: $('sModel').value.trim() || 'gemini-flash-lite-latest',
     engineer_name: $('sName').value.trim() || 'Bono', wake_word: ($('sWake').value.trim() || 'bono').toLowerCase(),
     voice_engine: $('sVoiceEngine').value, tts_voice: $('sTtsVoice').value,
+    groq_key: $('sGroq').value.trim(),
   };
   await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   $('saveBtn').textContent = 'Uloženo ✓';

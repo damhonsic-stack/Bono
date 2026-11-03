@@ -994,8 +994,10 @@ class Engine:
                 'connected': time.time() - self.last_packet_at < 3,
                 'rate': round(self.packet_rate),
                 'warning': self.format_warning,
-                'settings': {k: v for k, v in self.settings.items() if k != 'gemini_key'},
+                'settings': {k: v for k, v in self.settings.items()
+                             if k not in ('gemini_key', 'groq_key')},
                 'has_gemini': bool(self.settings.get('gemini_key')),
+                'has_groq': bool(self.settings.get('groq_key')),
                 'llm': {'model': self.last_llm_model, 'error': self.last_llm_error},
                 'session': {
                     'track_id': self.track_id,
@@ -1080,10 +1082,10 @@ class Engine:
         with self.lock:
             allowed = {'lang', 'level', 'reference', 'difficulty_override', 'voice',
                        'gemini_key', 'gemini_model', 'engineer_name', 'wake_word', 'buttons',
-                       'voice_engine', 'tts_voice'}
+                       'voice_engine', 'tts_voice', 'groq_key', 'groq_model', 'chat_model'}
             for k, v in new.items():
                 if k in allowed:
-                    if k == 'gemini_key' and v == '***':
+                    if k in ('gemini_key', 'groq_key') and v == '***':
                         continue
                     self.settings[k] = v
             self.storage.save_settings(self.settings)

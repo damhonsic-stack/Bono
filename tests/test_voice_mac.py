@@ -98,12 +98,39 @@ class EngineVoiceTests(unittest.TestCase):
         finally:
             llm._post = orig
         url, body = bodies[-1]
-        self.assertIn('gemini-3.5-flash', url)
+        self.assertIn('gemini-flash-lite-latest', url)
         texts = [c['parts'][0]['text'] for c in body['contents']]
         self.assertEqual(texts[0], 'DRIVER: jak je na tom Norris')
         self.assertEqual(texts[1], 'Odpověď 1.')
         self.assertTrue(texts[-1].endswith('DRIVER: A kdy boxoval'))
         self.assertEqual(len(e.chat_history), 2)
+
+    def test_groq_first_then_gemini_fallback(self):
+        e = Engine(Storage(tempfile.mkdtemp()))
+        e.settings.update(gemini_key='g', groq_key='q')
+        calls = []
+        og, ogem = llm.ask_groq, llm.ask_gemini
+
+        def fake_groq(key, model, *a, **k):
+            calls.append('groq:' + model)
+            return 'Groq odpověď.'
+        llm.ask_groq = fake_groq
+        llm.ask_gemini = lambda *a, **k: calls.append('gemini') or 'Gemini odpověď.'
+        try:
+            text, src = llm.answer(e, 'Bono, jak to vypadá?')
+            self.assertEqual((text, src), ('Groq odpověď.', 'gemini'))
+            self.assertEqual(calls, ['groq:llama-3.3-70b-versatile'])
+
+            def down(*a, **k):
+                raise llm.GeminiError('groq 503')
+            llm.ask_groq = down
+            llm._model_down.clear()
+            text, _ = llm.answer(e, 'A teď?')
+            self.assertEqual(text, 'Gemini odpověď.')
+        finally:
+            llm.ask_groq, llm.ask_gemini = og, ogem
+            llm._model_down.clear()
+        self.assertNotIn('groq_key', e.snapshot()['settings'])
 
     def test_default_language_is_czech(self):
         e = Engine(Storage(tempfile.mkdtemp()))

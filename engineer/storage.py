@@ -17,7 +17,9 @@ DEFAULT_SETTINGS = {
     'voice': True,
     'gemini_key': '',
     'gemini_model': 'gemini-flash-lite-latest',
-    'chat_model': 'gemini-3.5-flash',     # chytřejší model pro konverzaci s Bonem
+    'chat_model': 'gemini-flash-lite-latest',   # Gemini model pro konverzaci
+    'groq_key': '',                       # volitelné: zdarma na console.groq.com (rychlejší mozek)
+    'groq_model': 'llama-3.3-70b-versatile',
     # hlas: 'mixed' = urgentní hlášení hlasem iOS (okamžitě), ostatní Gemini hlasem s rádiovým
     # filtrem; 'gemini' = vše Gemini (záloha iOS); 'ios' = jen hlas iOS
     'voice_engine': 'mixed',
