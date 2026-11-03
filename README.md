@@ -129,6 +129,32 @@ rekordy, kalibrace i debriefy zůstanou.
 4. Do Xboxu zadej IP adresu PC, kterou server vypíše.
 5. Na iPhonu/iPadu otevři v Safari `http://<IP PC>:8080` a dej **Přidat na plochu**.
 
+## 2C) Bono s hlasem na Macu (doporučeno, Apple Silicon M1–M4)
+
+Bono poslouchá přes mikrofon Macu nebo AirPods. Přepis dělá **Whisper** přímo na Macu (offline,
+zdarma) a Bono mluví česky neural hlasem **Antonín** (Microsoft Edge, zdarma). Mikrofon poslouchá
+pořád, ale **reaguje jen po slově „Bono“**. Ostatní řeč se lokálně zahodí. Neurgentní hlášení
+Bono říká jen na rovinkách, ne v brzdné zóně.
+
+Jednou nainstaluj (pár minut, stáhne se ~1,6 GB model Whisper):
+```
+cd ~/Documents/Bono-f1-ai-engineer
+bash setup_mac.sh
+```
+Pak pokaždé spouštěj takhle (místo `python3 server.py`):
+```
+bash start_mac.sh
+```
+- macOS se zeptá, jestli může **Terminál použít mikrofon**: dej **Povolit**.
+- V prohlížeči na `http://localhost:8080` už **neklikej na Start Bono**. Mluví a poslouchá Mac.
+  Nahoře uvidíš „🎧 Bono on Mac“ a pod lištou „Slyším: …“.
+- „**Bono, jak jsou na tom gumy?**“ → odpoví. „**Bono.**“ → cinkne a 8 s čeká na otázku.
+- AirPods jako mikrofon přepnou zvuk do „telefonní“ kvality (zní to jako rádio). Chceš-li čistý
+  zvuk v AirPods a mikrofon Macu: `bash start_mac.sh --mic "MacBook"`.
+  Seznam mikrofonů: `.venv/bin/python server.py --list-mics`.
+- Bez internetu: poslech funguje dál (Whisper je lokální), hlas přepne na offline hlas macOS a
+  odpovědi na offline režim.
+
 ## 3) Před závodem: Start Bono
 
 1. Nasaď sluchátka (AirPods) na iPad, aby Bono neslyšel sám sebe a hra mu nepřekřikovala mikrofon.

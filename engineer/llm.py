@@ -1,6 +1,7 @@
 """Odpovědi na otázky jezdce: Gemini (volitelně) nebo offline pravidla."""
 import json
 import ssl
+import time
 import urllib.request
 import urllib.error
 
@@ -9,7 +10,11 @@ from . import radio as R
 SYSTEM_PROMPT = {
     'cs': """Jmenuješ se {name} a jsi závodní inženýr F1 týmu. Mluvíš se svým jezdcem přes týmové rádio během hry F1 25.
 PRAVIDLA:
-- Odpovídej česky, maximálně 2–3 krátké věty, jako v rádiu. Žádné odrážky, žádný markdown.
+- Jsi klidný, přátelský a profesionální, jako skutečný inženýr na pit wallu. Mluvíš přirozeně česky.
+- Odpovídej maximálně 2–3 krátké věty, jako v rádiu. Žádné odrážky, žádný markdown, žádné emoji.
+- Na otázky mimo data (F1 obecně, hra, pozdrav, pochvala, vtip, „jak se máš“) odpověz normálně a krátce.
+- Navazuj na předchozí konverzaci (zájmena jako „on“, „tam“, „a co teď“ se týkají toho, o čem byla řeč).
+- Čísla piš slovy nebo jednoduše, budou se číst nahlas (např. „jedna celá dvě sekundy“).
 - Technické F1 pojmy VŽDY anglicky, zbytek věty česky. Např.: lap, lap time, sector, delta, gap ahead,
   gap behind, pace, apex, braking point, exit, minimum speed, full throttle, gear, tyre wear, tyre temps,
   Soft/Medium/Hard/Intermediate/Wet, fuel, fuel delta, lift and coast, box, pit stop, undercut, overcut,
@@ -36,7 +41,9 @@ PRAVIDLA:
   setup_advice + car_balance (ratio >1,25 understeer, <0,8 oversteer).""",
     'en': """Your name is {name}. You are an F1 race engineer talking to your driver over team radio during the game F1 25.
 RULES:
-- Answer in English, max 2-3 short radio-style sentences. No bullet points, no markdown.
+- Answer in English, max 2-3 short radio-style sentences. No bullet points, no markdown, no emoji.
+- Be calm, friendly and professional like a real pit wall engineer. Answer general F1 / game / small
+  talk questions naturally and briefly. Follow up on the previous conversation.
 - Use ONLY numbers from the JSON data below. Never invent data. If something is missing, say so.
 - loss / avg_loss_ms = milliseconds lost in that corner section vs reference (positive = loss).
 - brake_diff_m negative = braking earlier than reference; throttle_diff_m positive = later to full throttle.
@@ -86,12 +93,14 @@ def _post(url, body, api_key, timeout):
 
 
 def ask_gemini(api_key, model, lang, question, context, timeout=8, name='Bono', system=None,
-               max_tokens=2048):
+               max_tokens=2048, history=None):
     url = ('https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent' % model)
     body = {
         'systemInstruction': {'parts': [{'text': system or SYSTEM_PROMPT.get(lang, SYSTEM_PROMPT['en'])
                                           .replace('{name}', name)}]},
-        'contents': [{
+        'contents': [c for q, a in (history or [])[-6:] for c in (
+            {'role': 'user', 'parts': [{'text': 'DRIVER: ' + q}]},
+            {'role': 'model', 'parts': [{'text': a}]})] + [{
             'role': 'user',
             'parts': [{'text': 'DATA (JSON):\n' + json.dumps(context, ensure_ascii=False) +
                        '\n\nDRIVER: ' + question}],
@@ -118,7 +127,7 @@ def ask_gemini(api_key, model, lang, question, context, timeout=8, name='Bono', 
 
 
 def ask_with_fallback(api_key, preferred, lang, question, context, name='Bono', system=None,
-                      max_tokens=2048, timeout=8):
+                      max_tokens=2048, timeout=8, history=None):
     """Zkusí preferovaný model a pak zálohy. Vrátí (text, model) nebo vyhodí poslední chybu."""
     models = [preferred] + [m for m in FALLBACK_MODELS if m != preferred]
     last = None
@@ -127,7 +136,7 @@ def ask_with_fallback(api_key, preferred, lang, question, context, name='Bono', 
             continue
         try:
             text = ask_gemini(api_key, m, lang, question, context, name=name, system=system,
-                              max_tokens=max_tokens, timeout=timeout)
+                              max_tokens=max_tokens, timeout=timeout, history=history)
             if text:
                 return text, m
         except (GeminiError, urllib.error.URLError, OSError, ValueError, KeyError, IndexError) as e:
@@ -139,6 +148,8 @@ def ask_with_fallback(api_key, preferred, lang, question, context, name='Bono', 
 
 # ---------------------------------------------------------------- offline pravidla
 KEYWORDS = [
+    ('around', ['kdo je', 'kdo jede', 'who is', "who's", 'přede mnou', 'prede mnou', 'za mnou',
+                'ahead of me', 'behind me']),
     ('debrief', ['debrief', 'shrň session', 'session summary']),
     ('setup', ['setup', 'understeer', 'oversteer', 'balance', 'nedotáč', 'nedotac', 'přetáč',
                'pretac', 'handling', 'wing angle']),
@@ -152,7 +163,7 @@ KEYWORDS = [
     ('ers', ['battery', 'baterie', 'ers', 'energy', 'energie', 'overtake mode', 'straight mode',
              'aero', 'harvest', 'deploy', 'boost']),
     ('gap', ['mezer', 'gap', 'před', 'pred', 'za mnou', 'dojíž', 'dojiz', 'stahu', 'behind', 'ahead',
-             'catching', 'closing']),
+             'catching', 'closing', 'dojet', 'dojedu', 'dojedeme', 'catch', 'předjet', 'predjet']),
     ('corners', ['zatáč', 'zatac', 'ztrác', 'ztrac', 'corner', 'turn', 'apex', 'losing', 'kde',
                  'where', 'braking']),
     ('target', ['obtížn', 'obtizn', 'ai ', 'cíl', 'cil', 'target', 'difficulty']),
@@ -160,6 +171,30 @@ KEYWORDS = [
                 'jak jsem na tom', 'shrnutí']),
     ('pace', ['tempo', 'pace', 'čas', 'cas', 'kolo', 'lap']),
 ]
+
+
+SMALLTALK = [
+    ('thanks', ['díky', 'diky', 'děkuju', 'dekuju', 'děkuji', 'thanks', 'thank you', 'cheers',
+                'dobrej', 'dobrý', 'good job', 'nice one', 'super', 'skvělý', 'skvely']),
+    ('hello', ['ahoj', 'čau', 'cau', 'nazdar', 'hello', 'hi bono', 'hey bono', 'zdravím']),
+    ('how', ['jak se máš', 'jak se mas', 'how are you', 'jak to jde']),
+]
+SMALLTALK_REPLY = {
+    'cs': {'thanks': 'Rádo se stalo. Drž tempo.', 'hello': 'Ahoj, Bono na příjmu. Jsem tady pro tebe.',
+           'how': 'Všechno v pohodě, sleduju data. Soustřeď se na jízdu.'},
+    'en': {'thanks': 'No worries. Keep it up.', 'hello': 'Hey, Bono here. I am with you.',
+           'how': 'All good here, watching the data. Focus on driving.'},
+}
+
+
+def smalltalk(question):
+    q = question.lower()
+    if len(q.split()) > 6:
+        return None
+    for kind, words in SMALLTALK:
+        if any(w in q for w in words):
+            return kind
+    return None
 
 
 def classify(question):
@@ -176,6 +211,11 @@ def answer_offline(engine, question):
     intent = classify(question)
     race = snap.get('race') or {}
     cs = lang == 'cs'
+    st = smalltalk(question)
+    if st and intent == 'pace' or st == 'thanks':
+        return SMALLTALK_REPLY.get(lang, SMALLTALK_REPLY['en'])[st]
+    if intent == 'around':
+        return around_report(engine, snap)
     if intent == 'status':
         return status_report(engine, snap)
     if intent == 'strategy':
@@ -189,8 +229,8 @@ def answer_offline(engine, question):
     if intent == 'debrief':
         ok = engine.start_debrief(announce=True)
         if cs:
-            return 'Připravuju debrief, bude na iPadu.' if ok else R.say(lang, 'no_data')
-        return 'Preparing the debrief, it will be on the iPad.' if ok else R.say(lang, 'no_data')
+            return 'Připravuju debrief, bude na obrazovce.' if ok else R.say(lang, 'no_data')
+        return 'Preparing the debrief, it will be on the screen.' if ok else R.say(lang, 'no_data')
     if intent == 'ers':
         return ers_report(engine, snap)
     if intent == 'tyres':
@@ -296,6 +336,33 @@ def ers_report(engine, snap):
     last = r.get('last_lap') or {}
     if last.get('straight_pct') is not None:
         parts.append(R.say(lang, 'aero_last', p=last['straight_pct']))
+    return ' '.join(parts) if parts else R.say(lang, 'no_data')
+
+
+def around_report(engine, snap):
+    lang = engine.lang
+    cs = lang == 'cs'
+    cars = snap.get('around') or []
+    me = next((c for c in cars if c['me']), None)
+    if not me:
+        return R.say(lang, 'no_data')
+    parts = []
+    for c in cars:
+        if c['me'] or abs(c['pos'] - me['pos']) != 1:
+            continue
+        where = ('před tebou' if c['pos'] < me['pos'] else 'za tebou') if cs else \
+            ('ahead' if c['pos'] < me['pos'] else 'behind')
+        txt = ('%s %s, %s, %s %s' if cs else '%s %s, %s, %s %s') % (
+            c['name'], where, R.fmt_delta(abs(c['gap']), lang), c['tyre'],
+            ('%d lapů' % c['age']) if cs and c['age'] is not None else
+            ('%d laps old' % c['age'] if c['age'] is not None else ''))
+        if c.get('pace_delta') is not None and abs(c['pace_delta']) >= 100:
+            faster = c['pace_delta'] < 0
+            txt += (', o %s za lap %s' % (R.fmt_delta(abs(c['pace_delta']), lang),
+                                          'rychlejší' if faster else 'pomalejší')) if cs else \
+                (', %s a lap %s' % (R.fmt_delta(abs(c['pace_delta']), lang),
+                                    'faster' if faster else 'slower'))
+        parts.append(txt + '.')
     return ' '.join(parts) if parts else R.say(lang, 'no_data')
 
 
@@ -440,6 +507,53 @@ def run_command(engine, action):
     return answer_intent(engine, action)
 
 
+CHAT_MODELS = ['gemini-flash-lite-latest', 'gemini-3.6-flash', 'gemini-flash-latest']
+_model_down = {}          # model -> čas, do kdy ho přeskakovat (přetížení / timeout)
+
+
+def ask_fast(api_key, models, lang, question, context, name='Bono', history=None,
+             deadline=6.0, hedge_after=2.5):
+    """Konverzace v závodě: první model hned, druhý souběžně po hedge_after s, celkem max
+    deadline s. Vrátí (text, model) nebo vyhodí chybu (pak odpoví offline)."""
+    from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+    now = time.time()
+    order = [m for m in models if _model_down.get(m, 0) < now] or list(models)
+    pool = ThreadPoolExecutor(max_workers=2)
+    futs = {}
+    t0 = time.time()
+
+    def submit(m):
+        futs[pool.submit(ask_gemini, api_key, m, lang, question, context, deadline, name,
+                         None, 2048, history)] = m
+    submit(order[0])
+    nxt = 1
+    last = None
+    try:
+        while futs:
+            left = deadline - (time.time() - t0)
+            if left <= 0:
+                break
+            step = min(left, hedge_after) if nxt < len(order) and len(futs) < 2 else left
+            done, _ = wait(list(futs), timeout=step, return_when=FIRST_COMPLETED)
+            for f in done:
+                m = futs.pop(f)
+                try:
+                    text = f.result()
+                    if text:
+                        return text, m
+                except Exception as e:  # noqa: BLE001
+                    last = e
+                    _model_down[m] = time.time() + 60
+            if (not done or not futs) and nxt < len(order) and len(futs) < 2:
+                submit(order[nxt])
+                nxt += 1
+        for m in futs.values():
+            _model_down[m] = time.time() + 60
+        raise last or GeminiError('timeout %.0fs' % deadline)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
 def answer(engine, question):
     question = strip_wake_word(question, engine.settings.get('wake_word', 'bono'))
     if not question:
@@ -452,10 +566,16 @@ def answer(engine, question):
     key = engine.settings.get('gemini_key')
     if key:
         try:
-            text, model = ask_with_fallback(
-                key, engine.settings.get('gemini_model') or DEFAULT_MODEL, engine.lang, question,
-                engine.context_for_llm(), name=engine.settings.get('engineer_name', 'Bono'))
+            with engine.lock:
+                history = list(engine.chat_history)
+            first = engine.settings.get('chat_model') or CHAT_MODELS[0]
+            models = [first] + [m for m in CHAT_MODELS if m != first]
+            text, model = ask_fast(key, models, engine.lang, question, engine.context_for_llm(),
+                                   name=engine.settings.get('engineer_name', 'Bono'),
+                                   history=history)
             engine.last_llm_model = model
+            with engine.lock:
+                engine.chat_history = (engine.chat_history + [(question, text)])[-10:]
             return text, 'gemini'
         except Exception as e:  # noqa: BLE001 – v závodě vždy odpověz aspoň offline
             engine.last_llm_error = str(e)[:200]

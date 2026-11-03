@@ -4,7 +4,7 @@ import os
 import threading
 
 DEFAULT_SETTINGS = {
-    'lang': 'en',            # 'en' | 'cs'
+    'lang': 'cs',            # 'cs' | 'en'
     'engineer_name': 'Bono',
     'wake_word': 'bono',
     # UDP Action tlačítka (ve hře je namapuj na ovladač) -> akce
@@ -17,6 +17,7 @@ DEFAULT_SETTINGS = {
     'voice': True,
     'gemini_key': '',
     'gemini_model': 'gemini-flash-lite-latest',
+    'chat_model': 'gemini-3.5-flash',     # chytřejší model pro konverzaci s Bonem
     # hlas: 'mixed' = urgentní hlášení hlasem iOS (okamžitě), ostatní Gemini hlasem s rádiovým
     # filtrem; 'gemini' = vše Gemini (záloha iOS); 'ios' = jen hlas iOS
     'voice_engine': 'mixed',

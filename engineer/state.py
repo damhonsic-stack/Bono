@@ -59,6 +59,9 @@ class Engine:
         self.prev_buttons = 0
         self.tts = GeminiTTS()
         self.presence = {}           # id zařízení -> (čas, má mikrofon) – kde běží „Start Bono“
+        self.heard = None            # poslední přepis z mikrofonu Macu
+        self.voice_status = None
+        self.chat_history = []       # [(otázka, odpověď)] – paměť konverzace pro Gemini
         self.session_time = 0.0
         self._new_session(None)
 
@@ -783,6 +786,21 @@ class Engine:
         threading.Thread(target=work, daemon=True).start()
         return True
 
+    def can_talk(self):
+        """Je teď vhodná chvíle mluvit? (rovinka, ne brzdění / zatáčka) – jako skutečný inženýr."""
+        with self.lock:
+            me = self.lap[self.player] if self.player < len(self.lap) else None
+            tel = self.tel[self.player] if self.player < len(self.tel) else None
+            if not me or not tel or me['pit_status'] or me['driver_status'] == 0:
+                return True
+            if tel['brake'] > 0.05 or abs(tel['steer']) > 0.15:
+                return False
+            d = me['lap_distance']
+            for c in self.corners:
+                if c['apex'] - 220 <= d <= c['apex'] + 60:
+                    return False
+            return True
+
     def heartbeat(self, dev_id, mic, name=''):
         self.presence[str(dev_id)[:40]] = (time.time(), bool(mic), str(name)[:40])
 
@@ -1014,6 +1032,7 @@ class Engine:
                 'format': self.packet_format,
                 'listen_seq': self.listen_seq,
                 'voice_devices': self.voice_devices(),
+                'heard': self.heard, 'voice_status': self.voice_status,
                 'strategy': self.strategy_snapshot(),
                 'around': self.opponents.around(self.lap, self.player, self.names()),
                 'incidents': self.incidents.summary(me, self.damage[self.player]

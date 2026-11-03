@@ -31,6 +31,7 @@ def lapd(**kw):
 
 def race_log(**kw):
     e = Engine(Storage(tempfile.mkdtemp()))
+    e.settings['lang'] = 'en'
     log = []
     orig = e.say
 
@@ -274,7 +275,7 @@ class EngineIntegrationTests(unittest.TestCase):
             if len(e.messages) > n:
                 break
             time.sleep(0.05)
-        self.assertEqual(e.messages[-1]['text'], 'Debrief is ready on the iPad.')
+        self.assertEqual(e.messages[-1]['text'], 'Debrief is ready on the screen.')
 
     def test_new_intents_offline(self):
         e, _ = race_log(laps=8, pit_lap=None)

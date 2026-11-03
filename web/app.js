@@ -9,6 +9,7 @@ let compareLap = null;
 let lastSpoken = null;
 let radioOn = false;
 let settingsLoaded = false;
+let lastHeardTs = null;
 let lastZones = '';
 
 // ------------------------------------------------------------------ formát
@@ -89,6 +90,11 @@ function render() {
   renderRegs(s);
   renderStrip(s);
   $('muteBtn').textContent = s.settings.voice === false ? '🔊 Unmute' : '🔇 Mute';
+  if (s.heard && s.heard.ts !== lastHeardTs) {        // přepis z mikrofonu Macu (Whisper)
+    lastHeardTs = s.heard.ts;
+    const tag = { ignore: '  (bez „Bono“ – ignoruji)', arm: '  → poslouchám…', ask: '  ✓' }[s.heard.action] || '';
+    showHeard(s.heard.text + tag, true);
+  }
   const vd = s.voice_devices || {};
   if (!radioOn && vd.count) {
     $('micState').textContent = `🎧 Bono on ${vd.names.join(', ')}`;

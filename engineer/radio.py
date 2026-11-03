@@ -215,7 +215,7 @@ _EXT = {
         'battery_quali': 'Battery {p} percent.',
         # setup / debrief
         'setup_header': 'Setup suggestion: {txt}',
-        'debrief_ready': 'Debrief is ready on the iPad.',
+        'debrief_ready': 'Debrief is ready on the screen.',
         'no_setup': 'Not enough data for setup advice yet. Do a few clean laps.',
     },
     'cs': {
@@ -273,7 +273,7 @@ _EXT = {
         'time_left': 'Do konce session {m} minut.',
         'battery_quali': 'Battery {p} procent.',
         'setup_header': 'Setup návrh: {txt}',
-        'debrief_ready': 'Debrief je připravený na iPadu.',
+        'debrief_ready': 'Debrief je připravený na obrazovce.',
         'no_setup': 'Na setup radu zatím nemám dost dat. Odjeď pár čistých lapů.',
     },
 }
