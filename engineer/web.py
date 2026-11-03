@@ -1,6 +1,7 @@
 """HTTP server (stdlib): statické soubory, Server-Sent Events a JSON API."""
 import json
 import os
+import urllib.parse
 import socket
 import threading
 import time
@@ -50,6 +51,10 @@ def make_handler(engine, web_root):
                 return self._json(engine.compare_traces() or {})
             if path == '/api/history':
                 return self._json(engine.storage.load_history(engine.track_id))
+            if path == '/api/debriefs':
+                return self._json(engine.storage.load_debriefs())
+            if path == '/api/tts':
+                return self._tts()
             if path == '/':
                 path = '/index.html'
             full = os.path.normpath(os.path.join(web_root, path.lstrip('/')))
@@ -83,7 +88,36 @@ def make_handler(engine, web_root):
             if path == '/api/reset_corners':
                 engine.reset_corners()
                 return self._json({'ok': True})
+            if path == '/api/debrief':
+                with engine.lock:
+                    ok = engine.start_debrief(announce=True)
+                return self._json({'ok': ok})
             self.send_error(404)
+
+        def _tts(self):
+            """Gemini hlas pro hlášení ?id=N. 204 = použij hlas iOS."""
+            qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            try:
+                mid = int(qs.get('id', ['0'])[0])
+            except ValueError:
+                mid = 0
+            with engine.lock:
+                msg = next((m for m in engine.messages if m['id'] == mid), None)
+                key = engine.settings.get('gemini_key')
+                voice = engine.settings.get('tts_voice', 'Charon')
+                lang = engine.lang
+            wav = engine.tts.get(key, msg['text'], voice, lang) if (msg and key) else None
+            if not wav:
+                self.send_response(204)
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', 'audio/wav')
+            self.send_header('Content-Length', str(len(wav)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(wav)
 
         def _sse(self):
             self.send_response(200)

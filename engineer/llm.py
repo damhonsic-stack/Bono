@@ -28,7 +28,12 @@ PRAVIDLA:
 - Turns jsou číslované automaticky (T1, T2 …) podle pořadí na trati, ne podle oficiálního číslování.
 - regs_2026 (regulace 2026): aero.mode Straight/Corner = active aero; overtake = Overtake mode
   (available/active/distance = metry do zpřístupnění); ers.pct = battery %, harvest_left_mj = zbývající
-  harvest v tomto lapu; last_lap.straight_pct = kolik % dostupných aero zón jezdec jel ve Straight mode.""",
+  harvest v tomto lapu; last_lap.straight_pct = kolik % dostupných aero zón jezdec jel ve Straight mode.
+- strategy.plan: doporučené zastávky (laps = box na KONCI lapu, tyres), alt = alternativa a o kolik ms je
+  pomalejší; rejoin = pozice po zastávce teď; stints deg_ms = degradace za lap. cars_around: auta kolem
+  (gap ms, záporné = před jezdcem; pace_delta ms/lap, záporné = rychlejší). incidents: warnings, track
+  limits, penalizace, damage %. weather.forecast: minuty dopředu + rain %. quali: stav a gap na trati.
+  setup_advice + car_balance (ratio >1,25 understeer, <0,8 oversteer).""",
     'en': """Your name is {name}. You are an F1 race engineer talking to your driver over team radio during the game F1 25.
 RULES:
 - Answer in English, max 2-3 short radio-style sentences. No bullet points, no markdown.
@@ -44,6 +49,12 @@ RULES:
 - regs_2026 (2026 regulations): aero.mode Straight/Corner = active aero; overtake = Overtake mode
   (available/active/distance in metres until available); ers.pct = battery %, harvest_left_mj = harvest
   left this lap; last_lap.straight_pct = % of available aero zone distance actually used in Straight mode.
+- strategy.plan: recommended pit plan (laps = pit at END of that lap, tyres), alt = alternative and how
+  much slower (ms); rejoin = predicted position if pitting now; pit_loss_ms; stints deg_ms = tyre
+  degradation per lap. cars_around: nearby cars with gap (ms, negative = ahead), tyre, age, pace_delta
+  (ms/lap, negative = faster than driver). incidents: warnings, track_limits, penalties, damage %.
+  weather.forecast: minutes ahead + rain %. quali: driver status, gap on track (s). setup_advice +
+  car_balance (ratio >1.25 understeer, <0.8 oversteer; entry/mid/exit and slow/medium/fast).
 - Speak like a real F1 race engineer: calm, short, precise.""",
 }
 
@@ -74,10 +85,11 @@ def _post(url, body, api_key, timeout):
         raise GeminiError('%d: %s' % (e.code, msg))
 
 
-def ask_gemini(api_key, model, lang, question, context, timeout=8, name='Bono'):
+def ask_gemini(api_key, model, lang, question, context, timeout=8, name='Bono', system=None,
+               max_tokens=2048):
     url = ('https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent' % model)
     body = {
-        'systemInstruction': {'parts': [{'text': SYSTEM_PROMPT.get(lang, SYSTEM_PROMPT['en'])
+        'systemInstruction': {'parts': [{'text': system or SYSTEM_PROMPT.get(lang, SYSTEM_PROMPT['en'])
                                           .replace('{name}', name)}]},
         'contents': [{
             'role': 'user',
@@ -86,7 +98,7 @@ def ask_gemini(api_key, model, lang, question, context, timeout=8, name='Bono'):
         }],
         # Gemini 3.x: thinkingLevel "low" = rychlá odpověď (v rádiu záleží na latenci)
         # limit zahrnuje i "thinking" tokeny, proto rezerva
-        'generationConfig': {'temperature': 0.3, 'maxOutputTokens': 2048,
+        'generationConfig': {'temperature': 0.3, 'maxOutputTokens': max_tokens,
                              'thinkingConfig': {'thinkingLevel': 'low'}},
     }
     try:
@@ -105,7 +117,8 @@ def ask_gemini(api_key, model, lang, question, context, timeout=8, name='Bono'):
     return text or None
 
 
-def ask_with_fallback(api_key, preferred, lang, question, context, name='Bono'):
+def ask_with_fallback(api_key, preferred, lang, question, context, name='Bono', system=None,
+                      max_tokens=2048, timeout=8):
     """Zkusí preferovaný model a pak zálohy. Vrátí (text, model) nebo vyhodí poslední chybu."""
     models = [preferred] + [m for m in FALLBACK_MODELS if m != preferred]
     last = None
@@ -113,7 +126,8 @@ def ask_with_fallback(api_key, preferred, lang, question, context, name='Bono'):
         if not m:
             continue
         try:
-            text = ask_gemini(api_key, m, lang, question, context, name=name)
+            text = ask_gemini(api_key, m, lang, question, context, name=name, system=system,
+                              max_tokens=max_tokens, timeout=timeout)
             if text:
                 return text, m
         except (GeminiError, urllib.error.URLError, OSError, ValueError, KeyError, IndexError) as e:
@@ -125,6 +139,14 @@ def ask_with_fallback(api_key, preferred, lang, question, context, name='Bono'):
 
 # ---------------------------------------------------------------- offline pravidla
 KEYWORDS = [
+    ('debrief', ['debrief', 'shrň session', 'session summary']),
+    ('setup', ['setup', 'understeer', 'oversteer', 'balance', 'nedotáč', 'nedotac', 'přetáč',
+               'pretac', 'handling', 'wing angle']),
+    ('damage', ['damage', 'poškoz', 'poskoz', 'wing', 'křídl', 'kridl', 'puncture', 'defekt']),
+    ('weather', ['rain', 'weather', 'déšť', 'dest', 'prší', 'prsi', 'počasí', 'pocasi', 'inters',
+                 'intermediate']),
+    ('strategy', ['strategy', 'strategie', 'box', 'pit', 'stop', 'undercut', 'overcut', 'plan',
+                  'zastáv', 'zastav']),
     ('tyres', ['gum', 'pneu', 'tyre', 'tire', 'opotřeb', 'opotreb', 'wear', 'soft', 'medium', 'hard']),
     ('fuel', ['paliv', 'benz', 'fuel', 'nádrž', 'nadrz']),
     ('ers', ['battery', 'baterie', 'ers', 'energy', 'energie', 'overtake mode', 'straight mode',
@@ -156,6 +178,19 @@ def answer_offline(engine, question):
     cs = lang == 'cs'
     if intent == 'status':
         return status_report(engine, snap)
+    if intent == 'strategy':
+        return strategy_report(engine, snap)
+    if intent == 'damage':
+        return damage_report(engine, snap)
+    if intent == 'weather':
+        return weather_report(engine, snap)
+    if intent == 'setup':
+        return setup_report(engine, snap)
+    if intent == 'debrief':
+        ok = engine.start_debrief(announce=True)
+        if cs:
+            return 'Připravuju debrief, bude na iPadu.' if ok else R.say(lang, 'no_data')
+        return 'Preparing the debrief, it will be on the iPad.' if ok else R.say(lang, 'no_data')
     if intent == 'ers':
         return ers_report(engine, snap)
     if intent == 'tyres':
@@ -264,6 +299,68 @@ def ers_report(engine, snap):
     return ' '.join(parts) if parts else R.say(lang, 'no_data')
 
 
+def strategy_report(engine, snap):
+    lang = engine.lang
+    cs = lang == 'cs'
+    st = snap.get('strategy') or {}
+    parts = []
+    with engine.lock:
+        plan_text = engine._plan_text()
+        rejoin = engine._rejoin_text() if st.get('rejoin') else ''
+    if plan_text:
+        parts.append(plan_text)
+    p = st.get('plan')
+    if p and p.get('alt'):
+        parts.append(('Alternativa %d-stop je o %s pomalejší.' if cs else
+                      'The %d-stop is %s slower.') % (p['alt']['stops'],
+                                                      R.fmt_delta(p['alt']['delta_ms'], lang)))
+    if st.get('stints'):
+        s = st['stints'][-1]
+        parts.append(R.say(lang, 'deg', d=R.fmt_delta(s['deg_ms'], lang), tyre=s['tyre']))
+    w = st.get('game_window') or [None, None]
+    if w[0]:
+        parts.append(R.say(lang, 'pit_window', ideal=w[0], latest=w[1]))
+    if rejoin and p and p.get('stops'):
+        parts.append(('Kdybys jel do boxu teď: ' if cs else 'If you box now: ') + rejoin)
+    return ' '.join(parts) if parts else R.say(lang, 'no_data')
+
+
+def damage_report(engine, snap):
+    lang = engine.lang
+    inc = snap.get('incidents') or {}
+    dmg = inc.get('damage') or {}
+    if not dmg:
+        return 'Žádné poškození.' if lang == 'cs' else 'No damage, car is fine.'
+    parts = [R.say(lang, 'damage', part=R.DAMAGE_PARTS.get(k, k), p=v)
+             for k, v in sorted(dmg.items(), key=lambda kv: -kv[1])[:3]]
+    return ' '.join(parts)
+
+
+def weather_report(engine, snap):
+    lang = engine.lang
+    cs = lang == 'cs'
+    w = snap.get('weather') or {}
+    msg = ('Teď %s, trať %s °C.' if cs else 'Currently %s, track %s degrees.') % (
+        w.get('now') or '?', w.get('track_temp'))
+    rain = [f for f in w.get('forecast', []) if f['rain'] >= 40 or f['weather'] in
+            ('Light Rain', 'Heavy Rain', 'Storm')]
+    if rain:
+        f = rain[0]
+        msg += ' ' + R.say(lang, 'rain_coming', m=f['min'], p=f['rain'])
+    else:
+        msg += ' Déšť se nečeká.' if cs else ' No rain expected.'
+    return msg
+
+
+def setup_report(engine, snap):
+    lang = engine.lang
+    adv = (snap.get('setup') or {}).get('advice') or []
+    if not adv:
+        return R.say(lang, 'no_setup')
+    txt = '; '.join('%s: %s' % (a['issue'], a['change']) for a in adv[:2])
+    return R.say(lang, 'setup_header', txt=txt)
+
+
 def status_report(engine, snap):
     """Krátký souhrn jako od inženýra: pozice, mezery, gumy, palivo, baterie."""
     lang = engine.lang
@@ -278,6 +375,10 @@ def status_report(engine, snap):
     r = snap.get('regs') or {}
     if r.get('ers'):
         parts.append(R.say(lang, 'ers_status', p=r['ers']['pct'], mode=r['ers']['mode']))
+    with engine.lock:
+        plan_text = engine._plan_text()
+    if plan_text:
+        parts.append(plan_text)
     if not race:
         txt = answer_intent(engine, 'pace', snap)
         parts.append(txt)
@@ -287,7 +388,9 @@ def status_report(engine, snap):
 def answer_intent(engine, intent, snap=None):
     """Offline odpověď pro konkrétní záměr (pro tlačítka na ovladači)."""
     q = {'gap': 'gap', 'tyres': 'tyres', 'fuel': 'fuel', 'corners': 'corner',
-         'pace': 'pace', 'target': 'target', 'ers': 'ers', 'status': 'status'}.get(intent, intent)
+         'pace': 'pace', 'target': 'target', 'ers': 'ers', 'status': 'status',
+         'strategy': 'strategy', 'damage': 'damage', 'setup': 'setup', 'weather': 'weather',
+         'debrief': 'debrief'}.get(intent, intent)
     return answer_offline(engine, q)
 
 

@@ -188,7 +188,7 @@ class CarLapRecorder:
         return CompletedLap(self.car, self.lap_num, lap_ms, [s1, s2, s3],
                             valid=not self.invalid,
                             clean=bool(trace) and not self.pitted,
-                            trace=trace)
+                            trace=trace, meta={'pitted': self.pitted})
 
     def live_progress(self):
         if not self.samples:

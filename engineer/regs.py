@@ -82,7 +82,9 @@ class Regs26:
         key = ('behind', behind_idx)
         was = self.prev.get(key, 0)
         now = c['overtake_available'] or c['overtake_active']
-        if now and not was and gap_behind_ms is not None and gap_behind_ms < 1500:
+        if now and not was and gap_behind_ms is not None and gap_behind_ms < 1500 and \
+                self.prev.get('behind_lap') != self._lap:
+            self.prev['behind_lap'] = self._lap
             self.events.append(('ot_behind', {'gap': gap_behind_ms}))
         self.prev[key] = now
 

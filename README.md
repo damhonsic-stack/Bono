@@ -19,6 +19,22 @@ Závodní inženýr pro **F1 25** (včetně Season Pass 2026). Hra běží na Xb
   Overtake mode (READY/ACTIVE, nevyužité okno, auto za tebou má overtake → „Defend“), ERS battery,
   harvest limit na lap, active aero zóny na mapě, race control (overtake enabled, partial mode)
 - **Hands-free**: řekneš „**Bono**, …“ nebo zmáčkneš tlačítko na ovladači Xboxu
+- **Strategie** (záložka Strategy): tyre degradation měřená z tvých lapů, pit loss naměřený ze
+  skutečných zastávek aut, plán 0/1/2 zastávek s optimálním oknem (respektuje povinné 2 směsi a
+  dostupné sady gum ze hry), „Box next lap / Box this lap“, odhad pozice po výjezdu, undercut,
+  levná zastávka pod Safety Car / VSC, předpověď deště („rain in 12 minutes“) a přechod na inters
+- **Soupeři**: směs a stáří gum všech aut, kdo byl v boxech, tempo aut kolem tebe
+  („Norris behind on fresh Softs, 0.6 a lap faster, catches you in 3 laps“)
+- **Incidenty**: track limits warnings, penalizace s důvodem, blue a yellow flag, Safety Car / VSC /
+  red flag, kontakt, poškození (wing, floor…), defekt, „box for a new nose“
+- **Kvalifikace**: out lap (teploty gum, battery), volná trať před tebou, „Push now“, auto za tebou
+  na rychlém kole, provisional pozice, zbývající čas
+- **Debrief** po session (záložka Debrief): Gemini shrne výsledek, konzistenci, srovnání s rekordem
+  a top 3 věci na příště; ukládá se historie debriefů
+- **Setup advice**: z úhlů skluzu kol pozná understeer/oversteer v entry/mid/exit a v pomalých,
+  středních a rychlých zatáčkách, k tomu zamykání kol, protáčení a teploty gum. Navrhne konkrétní
+  změnu, třeba „front ARB 8 → 7“
+- **Realistický hlas** (volitelně): odpovědi Bona Gemini hlasem s filtrem týmového rádia
 
 Všechno je **zdarma**. Potřebuješ jen Python 3, bez dalších knihoven, bez Macu a bez vývojářského účtu Apple.
 
@@ -62,6 +78,10 @@ tlačítkům (např. D-pad nebo kliknutí páčkou):
 | UDP Action 6 | Fuel |
 | UDP Action 7 | Repeat: zopakuje poslední hlášení |
 | UDP Action 8 | Mute: Bono přestane mluvit sám od sebe |
+| UDP Action 9 | Strategy: plán zastávek a pozice po výjezdu |
+| UDP Action 10 | Damage report |
+| UDP Action 11 | Setup advice |
+| UDP Action 12 | Debrief |
 
 ## 2A) Server přímo na iPadu (a-Shell, zdarma)
 
@@ -102,8 +122,9 @@ Tip: v Safari → Sdílet → **Přidat na plochu**. Aplikace se pak otevírá n
    - nebo zmáčkni **UDP Action 1** na ovladači a rovnou mluv
    - Bono navíc sám hlásí lap time, kde ztrácíš, gapy, overtake mode, battery, fuel a tyres
 
-Hlasové příkazy: *status report · tyres · fuel · gap ahead / gap behind · where am I losing time ·
-battery / overtake · target / AI difficulty · say again · be quiet · talk to me · radio check*.
+Hlasové příkazy: *status report · strategy / when do I box · tyres · fuel · gap ahead / gap behind ·
+where am I losing time · battery / overtake · damage · weather · setup advice · debrief ·
+target / AI difficulty · say again · be quiet · talk to me · radio check*.
 
 > **Mikrofon v Safari** funguje jen na zabezpečené stránce. `http://localhost:8080` (server běží na
 > stejném iPadu v a-Shell) je v pořádku. Pokud server běží na PC a iPad otevírá `http://192.168…`,
@@ -125,6 +146,9 @@ battery / overtake · target / AI difficulty · say again · be quiet · talk to
   lokálně do `data/settings.json` (na GitHub se nenahrává). Výchozí model `gemini-flash-lite-latest`
   odpovídá zhruba za 1 s. Když je přetížený, Bono zkusí `gemini-3.5-flash` a `gemini-flash-latest`,
   a když Gemini nejde vůbec, odpoví offline.
+- **Hlas Bona**: *Mixed* (výchozí) = odpovědi na tvoje otázky realistickým Gemini hlasem s rádiovým
+  filtrem, automatická hlášení a urgentní věci (box, vlajky, SC) okamžitě hlasem iOS.
+  Free tier Gemini TTS pustí jen asi 2 hlasy za minutu, nad limit Bono automaticky mluví hlasem iOS.
   Pozn.: studentské předplatné Gemini platí pro aplikaci Gemini, API klíč z AI Studia má vlastní free tier.
   Na free tieru může Google data použít ke zlepšování modelů. Posílají se ale jen čísla z telemetrie.
 
@@ -138,6 +162,8 @@ python3 tools/simulator.py --speed 4               # terminál 2 (kvalifikace)
 python3 tools/simulator.py --mode race --laps 15   # závod (formát 2026)
 python3 tools/simulator.py --format 2025           # starý formát
 python3 tools/simulator.py --button 2              # stiskne UDP Action 2 (status report)
+python3 tools/simulator.py --mode race --laps 25 --pit-lap 14 --sc-lap 8 --damage-lap 4 \
+        --penalty-lap 6 --rain-in 12               # závod se vším: box, SC, damage, penalty, déšť
 ```
 
 Testy: `python3 -m unittest discover -s tests`
@@ -152,6 +178,13 @@ engineer/corners.py    detekce zatáček, srovnání, rady
 engineer/targets.py    cílové časy podle obtížnosti AI + kalibrace
 engineer/race.py       palivo, gumy, mezery a trendy
 engineer/regs.py       regulace 2026: active aero, overtake mode, ERS
+engineer/strategy.py   tyre deg, pit loss, plán zastávek, undercut, SC, počasí
+engineer/opponents.py  gumy, zastávky a tempo soupeřů
+engineer/incidents.py  track limits, penalizace, vlajky, safety car, poškození
+engineer/quali.py      out lap, provoz na trati, push call
+engineer/setup.py      vyvážení auta ze skluzu kol, návrhy setupu
+engineer/debrief.py    debrief po session
+engineer/tts.py        realistický hlas (Gemini TTS)
 engineer/radio.py      texty rádia CZ/EN, úrovně inženýra
 engineer/llm.py        Gemini + offline odpovědi
 engineer/state.py      hlavní logika
@@ -170,4 +203,6 @@ data/                  tvoje rekordy, kalibrace a nastavení (vzniká samo)
   (v hluku nebo u reproduktorů), a proto jsou tu i tlačítka na ovladači.
 - Wake word, rozpoznávání řeči ani hlas iOS jsem nemohl vyzkoušet na skutečném iPadu, jen v prohlížeči
   na počítači se simulovaným mikrofonem.
+- Strategie, setup advice a odhad pit loss jsou modely z telemetrie. Ve skutečné hře je potřeba je
+  ověřit a doladit (otestováno jen se simulátorem).
 - Online: ostatní hráči mohou mít telemetrii omezenou, takže srovnání s nimi nemusí fungovat.

@@ -48,11 +48,12 @@ class PacketTests(unittest.TestCase):
 
     def test_2026_packet_sizes_match_official_spec(self):
         # velikosti z "Data Output from F1 25: 2026 Season Pack" v1.2
-        official = {0: 1325, 1: 926, 2: 1399, 4: 1470, 6: 1448, 7: 1445, 10: 1133, 16: 269}
+        official = {0: 1325, 1: 926, 2: 1399, 4: 1470, 5: 1233, 6: 1448, 7: 1445, 10: 1133,
+                    12: 231, 13: 273, 16: 269}
         seen = {}
         for _, pkt in SIM.generate('race', laps=1, seed=1, fmt=2026):
             seen[P.parse_header(pkt)['packet_id']] = len(pkt)
-            if len(seen) >= len(official):
+            if all(k in seen for k in official):
                 break
         for pid, size in official.items():
             self.assertEqual(seen[pid], size, 'packet %d' % pid)

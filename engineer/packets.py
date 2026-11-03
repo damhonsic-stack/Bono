@@ -39,7 +39,10 @@ HISTORY_LAP = struct.Struct('<IHBHBHBB')  # 14 B
 FORECAST = struct.Struct('<BBBbbbbB')  # 8 B
 TELEMETRY2 = struct.Struct('<BBHBBHBB')  # 10 B (2026)
 DAMAGE_STRIDE = 46
-DAMAGE_HEAD = struct.Struct('<4f4B4B')
+DAMAGE = struct.Struct('<4f4B4B4B18B')  # 46 B (2025 i 2026)
+SETUP = struct.Struct('<BBBBffffBBBBBBBBBffffBf')  # 50 B (2025 i 2026)
+TYRE_SET = struct.Struct('<BBBBBBBhB')  # 10 B
+MOTION_EX_S = struct.Struct('<' + 'f' * 61)  # 244 B (jen hráč)
 
 
 class Layout:
@@ -62,8 +65,8 @@ LAYOUT_2025 = Layout(
     participant='<BBBBBBB32sBBHBB12s',           # 57 B
     tt_set='<BBIIIIBBBBBB',                      # 24 B
     sizes={MOTION: 1349, SESSION: 753, LAP_DATA: 1285, EVENT: 45, PARTICIPANTS: 1284,
-           CAR_TELEMETRY: 1352, CAR_STATUS: 1239, CAR_DAMAGE: 1041, SESSION_HISTORY: 1460,
-           TIME_TRIAL: 101},
+           CAR_SETUPS: 1133, CAR_TELEMETRY: 1352, CAR_STATUS: 1239, CAR_DAMAGE: 1041,
+           SESSION_HISTORY: 1460, TYRE_SETS: 231, MOTION_EX: 273, TIME_TRIAL: 101},
 )
 
 LAYOUT_2026 = Layout(
@@ -74,8 +77,9 @@ LAYOUT_2026 = Layout(
     participant='<BHHHBBB32sBBHBB12s',           # 60 B (driver/network/team id uint16)
     tt_set='<BHIIIIBBBBBB',                      # 25 B (team id uint16)
     sizes={MOTION: 1325, SESSION: 926, LAP_DATA: 1399, EVENT: 45, PARTICIPANTS: 1470,
-           CAR_TELEMETRY: 1448, CAR_STATUS: 1445, CAR_DAMAGE: 1133, SESSION_HISTORY: 1460,
-           TIME_TRIAL: 104, CAR_TELEMETRY_2: 269},
+           CAR_SETUPS: 1233, CAR_TELEMETRY: 1448, CAR_STATUS: 1445, CAR_DAMAGE: 1133,
+           SESSION_HISTORY: 1460, TYRE_SETS: 231, MOTION_EX: 273, TIME_TRIAL: 104,
+           CAR_TELEMETRY_2: 269},
 )
 
 LAYOUTS = {2025: LAYOUT_2025, 2026: LAYOUT_2026}
@@ -92,6 +96,10 @@ for _l in LAYOUTS.values():
     assert HEADER_SIZE + 1 + _l.cars * _l.participant.size == _l.sizes[PARTICIPANTS]
     assert HEADER_SIZE + _l.cars * DAMAGE_STRIDE == _l.sizes[CAR_DAMAGE]
     assert HEADER_SIZE + 3 * _l.tt_set.size == _l.sizes[TIME_TRIAL]
+    assert HEADER_SIZE + _l.cars * SETUP.size + 4 == _l.sizes[CAR_SETUPS]
+    assert HEADER_SIZE + 1 + 20 * TYRE_SET.size + 1 == _l.sizes[TYRE_SETS]
+    assert HEADER_SIZE + MOTION_EX_S.size == _l.sizes[MOTION_EX]
+assert DAMAGE.size == DAMAGE_STRIDE
 assert HEADER_SIZE + 24 * TELEMETRY2.size == LAYOUT_2026.sizes[CAR_TELEMETRY_2]
 
 
@@ -132,8 +140,17 @@ def parse_lap_data(data, L):
             'sector': v[17],
             'invalid': v[18],
             'penalties': v[19],
-            'driver_status': v[25],
+            'warnings': v[20],
+            'cc_warnings': v[21],
+            'unserved_dt': v[22],
+            'unserved_sg': v[23],
+            'grid': v[24],
+            'driver_status': v[25],   # 0 garage, 1 flying lap, 2 in lap, 3 out lap, 4 on track
             'result_status': v[26],
+            'pit_lane_active': v[27],
+            'pit_lane_ms': v[28],
+            'pit_stop_ms': v[29],
+            'sc_delta': v[12],
         })
     pb_idx, rival_idx = struct.unpack_from('<BB', data, off)
     return {'cars': cars, 'tt_pb_idx': pb_idx, 'tt_rival_idx': rival_idx}
@@ -200,13 +217,58 @@ def parse_status(data, L):
 def parse_damage(data, L):
     cars = []
     for i in range(L.cars):
-        v = DAMAGE_HEAD.unpack_from(data, HEADER_SIZE + i * DAMAGE_STRIDE)
+        v = DAMAGE.unpack_from(data, HEADER_SIZE + i * DAMAGE_STRIDE)
         cars.append({
             'tyre_wear': [round(w, 1) for w in v[0:4]],
             'tyre_damage': list(v[4:8]),
             'brake_damage': list(v[8:12]),
+            'blisters': list(v[12:16]),
+            'fl_wing': v[16], 'fr_wing': v[17], 'rear_wing': v[18], 'floor': v[19],
+            'diffuser': v[20], 'sidepod': v[21], 'drs_fault': v[22], 'ers_fault': v[23],
+            'gearbox': v[24], 'engine': v[25],
+            'engine_blown': v[32], 'engine_seized': v[33],
         })
     return {'cars': cars}
+
+
+def parse_setups(data, L):
+    cars = []
+    for i in range(L.cars):
+        v = SETUP.unpack_from(data, HEADER_SIZE + i * SETUP.size)
+        cars.append({
+            'front_wing': v[0], 'rear_wing': v[1], 'on_throttle': v[2], 'off_throttle': v[3],
+            'front_camber': round(v[4], 2), 'rear_camber': round(v[5], 2),
+            'front_toe': round(v[6], 2), 'rear_toe': round(v[7], 2),
+            'front_susp': v[8], 'rear_susp': v[9], 'front_arb': v[10], 'rear_arb': v[11],
+            'front_height': v[12], 'rear_height': v[13], 'brake_pressure': v[14],
+            'brake_bias': v[15], 'engine_braking': v[16],
+            'pressures': [round(x, 1) for x in v[17:21]],  # RL, RR, FL, FR
+            'ballast': v[21], 'fuel_load': round(v[22], 1),
+        })
+    return {'cars': cars}
+
+
+def parse_tyre_sets(data, L):
+    car = data[29]
+    sets = []
+    for i in range(20):
+        v = TYRE_SET.unpack_from(data, 30 + i * TYRE_SET.size)
+        sets.append({'actual': v[0], 'visual': v[1], 'wear': v[2], 'available': v[3],
+                     'recommended_session': v[4], 'life_left': v[5], 'usable_life': v[6],
+                     'lap_delta': v[7], 'fitted': v[8], 'idx': i})
+    return {'car': car, 'sets': sets, 'fitted_idx': data[230]}
+
+
+def parse_motion_ex(data, L):
+    v = MOTION_EX_S.unpack_from(data, HEADER_SIZE)
+    return {
+        'slip_ratio': list(v[16:20]),     # RL, RR, FL, FR
+        'slip_angle': list(v[20:24]),
+        'local_vel': list(v[33:36]),
+        'ang_vel': list(v[36:39]),
+        'front_wheels_angle': v[42],
+        'chassis_yaw': v[51],
+    }
 
 
 def parse_motion(data, L):
@@ -237,6 +299,8 @@ def parse_session(data, L):
         'session_type': session_type, 'track_id': track_id, 'formula': formula,
         'time_left': time_left, 'duration': duration, 'pit_limit': pit_limit,
         'paused': data[43], 'safety_car': data[153], 'network': data[154],
+        'marshal_zones': [struct.unpack_from('<fb', data, 48 + i * 5)
+                          for i in range(min(data[47], 21))],
         'ai_difficulty': data[669], 'game_mode': data[694],
         'pit_ideal_lap': data[682], 'pit_latest_lap': data[683],
     }
@@ -300,6 +364,11 @@ def parse_event(data, L):
         ev['overtaker'], ev['overtaken'] = data[33], data[34]
     elif code == 'PMEN':
         ev['reason'] = data[33]
+    elif code == 'PENA':
+        (ev['penalty_type'], ev['infringement'], ev['car'], ev['other'], ev['time'],
+         ev['lap'], ev['places']) = struct.unpack_from('<7B', data, 33)
+    elif code in ('RTMT', 'TMPT', 'RCWN', 'DTSV', 'SGSV'):
+        ev['car'] = data[33]
     elif code == 'SCAR':
         ev['sc_type'], ev['sc_event'] = data[33], data[34]
     elif code == 'COLL':
@@ -317,6 +386,9 @@ PARSERS = {
     PARTICIPANTS: parse_participants,
     CAR_TELEMETRY: parse_telemetry,
     CAR_TELEMETRY_2: parse_telemetry2,
+    CAR_SETUPS: parse_setups,
+    TYRE_SETS: parse_tyre_sets,
+    MOTION_EX: parse_motion_ex,
     CAR_STATUS: parse_status,
     CAR_DAMAGE: parse_damage,
     SESSION_HISTORY: parse_session_history,

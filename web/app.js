@@ -38,6 +38,7 @@ document.querySelectorAll('nav#tabs button').forEach((b) => {
     if (b.dataset.tab === 'corners') loadCompare(true);
     if (b.dataset.tab === 'laps') loadHistory();
     if (b.dataset.tab === 'live') drawMap();
+    if (b.dataset.tab === 'debrief') loadDebriefs();
   };
 });
 
@@ -86,6 +87,9 @@ function render() {
   if (listenSeq === null) listenSeq = s.listen_seq;
   if (s.listen_seq !== listenSeq) { listenSeq = s.listen_seq; Voice.listenNow(); }
   renderRegs(s);
+  renderStrip(s);
+  if (document.querySelector('#tab-strat.active')) renderStrategy(s);
+  if (document.querySelector('#tab-debrief.active')) renderSetup(s);
 }
 
 function renderLive(s) {
@@ -196,6 +200,114 @@ function renderRegs(s) {
       (last.straight_pct !== undefined ? `Last lap: straight mode ${last.straight_pct} % of zones · overtake used ${last.ot_uses || 0}×` : '');
   }
 }
+
+// ------------------------------------------------------------------ strategie, soupeři, incidenty
+function planText(p) {
+  if (!p) return '–';
+  if (!p.stops) return 'No stop – to the end';
+  return `${p.stops}-stop: ` + p.laps.map((k, i) => `L${k} → ${p.tyres[i]}`).join(', ');
+}
+function renderStrip(s) {
+  const parts = [];
+  const inc = s.incidents || {};
+  if (inc.sc) parts.push(`<span class="sc">${inc.sc}</span>`);
+  const p = s.strategy && s.strategy.plan;
+  if (p && p.stops && s.live) parts.push(`<span>Box L${p.laps[0]} → ${p.tyres[0]}</span>`);
+  if (inc.track_limits) parts.push(`<span class="${inc.track_limits >= 3 ? 'warn' : ''}">Track limits ${inc.track_limits}</span>`);
+  if (inc.penalty_s) parts.push(`<span class="warn">+${inc.penalty_s} s penalty</span>`);
+  const q = s.quali;
+  if (q && q.status && s.session && s.session.type_id !== 15 && s.session.type_id !== 16 && s.session.type_id !== 17) {
+    parts.push(`<span>${q.status}</span>`);
+    if (q.ahead_s !== null && q.ahead_s < 10) parts.push(`<span>Car ahead on track ${q.ahead_s} s</span>`);
+  }
+  const dmg = inc.damage || {};
+  const worst = Object.entries(dmg).sort((a, b) => b[1] - a[1])[0];
+  if (worst) parts.push(`<span class="warn">${worst[0].replace('_', ' ')} ${worst[1]} %</span>`);
+  $('liveStrip').innerHTML = parts.join('');
+}
+function renderStrategy(s) {
+  const st = s.strategy || {};
+  const p = st.plan;
+  $('planBig').textContent = planText(p);
+  const info = [];
+  if (p && p.alt) info.push(`Alternative ${p.alt.stops}-stop: +${(p.alt.delta_ms / 1000).toFixed(1)} s`);
+  if (p && p.window) info.push(`Optimal window for first stop: lap ${p.window[0]}–${p.window[1]}`);
+  if (st.game_window && st.game_window[0]) info.push(`Game pit window: ideal lap ${st.game_window[0]}, latest ${st.game_window[1]}`);
+  info.push(`Pit loss ${(st.pit_loss_ms / 1000).toFixed(1)} s` + (st.pit_loss_measured ? ` (measured from ${st.pit_loss_measured} stops)` : ' (estimate)'));
+  if (st.rejoin) {
+    const r = st.rejoin;
+    let t = `If you box now: rejoin P${r.pos}`;
+    if (r.ahead) t += ` · ${(r.ahead.gap / 1000).toFixed(1)} s behind ${esc(r.ahead.name)}`;
+    if (r.behind) t += ` · ${(r.behind.gap / 1000).toFixed(1)} s ahead of ${esc(r.behind.name)}`;
+    info.push(t);
+  }
+  $('planInfo').innerHTML = info.join('<br>');
+  $('degInfo').innerHTML = (st.stints || []).map((x) =>
+    `${x.tyre} from lap ${x.start_lap}: <b>${(x.deg_ms / 1000).toFixed(3)} s/lap</b> <span class="muted">(${x.deg_src}, ${x.points} laps)</span>`).join('<br>') || 'Spočítám po pár čistých lapech v závodě.';
+  if (st.sets) {
+    const groups = {};
+    st.sets.forEach((t) => {
+      const k = t.fitted ? 'fitted' : `${t.tyre}|${t.wear}|${t.life_left}|${t.delta}`;
+      (groups[k] = groups[k] || { ...t, n: 0 }).n++;
+    });
+    $('setsInfo').innerHTML = Object.values(groups).map((t) => t.fitted
+      ? `▶ <b>${t.tyre}</b> (fitted) · wear ${t.wear} % · ${t.life_left} laps left`
+      : `${t.n}× ${t.tyre} · ${t.wear ? 'used ' + t.wear + ' %' : 'new'} · life ${t.life_left} laps · ` +
+        `<span class="${t.delta < 0 ? 'gain' : 'loss'}">${t.delta > 0 ? '+' : ''}${(t.delta / 1000).toFixed(2)} s/lap</span> vs fitted`).join('<br>');
+  } else $('setsInfo').textContent = 'Žádná data o sadách.';
+  // počasí
+  const w = s.weather || {};
+  $('wxNow').textContent = w.now ? `${w.now} · track ${w.track_temp}°C` : '–';
+  $('wxForecast').innerHTML = (w.forecast || []).map((f) =>
+    `<div class="${f.rain >= 40 ? 'rain' : ''}">+${f.min} min<br><b>${esc(f.weather || '?')}</b><br>${f.rain} %</div>`).join('');
+  // auta kolem
+  $('aroundTable').querySelector('tbody').innerHTML = (s.around || []).map((c) => `
+    <tr class="${c.me ? 'me' : ''}"><td>P${c.pos}</td><td>${esc(c.name)}${c.in_pit ? ' 🅿️' : ''}</td>
+    <td class="num">${c.me ? '–' : (c.gap > 0 ? '+' : '') + (c.gap / 1000).toFixed(1)}</td>
+    <td>${c.tyre}${c.age !== null && c.age !== undefined ? ' ' + c.age : ''}</td><td>${c.pits}</td>
+    <td class="num">${fmtLap(c.last)}</td>
+    <td class="num ${c.pace_delta < 0 ? 'loss' : 'gain'}">${c.pace_delta === null ? '–' : fmtDelta(c.pace_delta)}</td></tr>`).join('')
+    || '<tr><td colspan="7" class="muted">Jen v závodě.</td></tr>';
+  // incidenty
+  const inc = s.incidents || {};
+  const dmg = Object.entries(inc.damage || {}).map(([k, v]) => `${k.replace('_', ' ')} ${v} %`).join(', ');
+  $('incInfo').innerHTML = `Warnings ${inc.warnings || 0} · track limits ${inc.track_limits || 0} · time penalties ${inc.penalty_s || 0} s` +
+    (inc.unserved_dt ? ` · <b class="red">drive through to serve</b>` : '') + (inc.unserved_sg ? ` · <b class="red">stop & go to serve</b>` : '') +
+    `<br>Damage: ${dmg || 'none'}` + (inc.sc ? `<br><b>${inc.sc}</b>` : '');
+}
+function renderSetup(s) {
+  const su = s.setup || {};
+  const bal = su.balance || {};
+  const rows = ['entry', 'mid', 'exit'].map((ph) => `<tr><td><b>${ph}</b></td>` + ['slow', 'medium', 'fast'].map((sp) => {
+    const b = bal[`${ph}_${sp}`];
+    return b ? `<td class="bal-${b.state}">${b.state} <span class="muted">(${b.ratio})</span></td>` : '<td class="muted">–</td>';
+  }).join('') + '</tr>');
+  $('balanceTable').querySelector('tbody').innerHTML = rows.join('');
+  const t = su.avg_surface_temps;
+  $('balanceInfo').textContent = `Lock-ups front ${su.lockups ? su.lockups.front : 0} / rear ${su.lockups ? su.lockups.rear : 0} · wheelspin ${su.wheelspin || 0}` +
+    (t ? ` · avg surface temps FL ${t.FL}° FR ${t.FR}° RL ${t.RL}° RR ${t.RR}°` : '');
+  const adv = su.advice || [];
+  $('setupAdvice').innerHTML = adv.length ? adv.map((a) =>
+    `<div class="advice"><b>${esc(a.issue)}</b>${esc(a.change)}${a.current ? `<i> · ${esc(a.current)}</i>` : ''}</div>`).join('')
+    : '<span class="muted">Zatím bez doporučení. Odjeď pár čistých lapů.</span>';
+}
+let debriefsLoaded = 0;
+function loadDebriefs() {
+  fetch('/api/debriefs').then((r) => r.json()).then((list) => {
+    if (!list.length) return;
+    const d = list[0];
+    $('debriefText').textContent = d.text;
+    $('debriefOld').innerHTML = `${new Date(d.ts * 1000).toLocaleString('cs-CZ')} · ${esc(d.track)} ${esc(d.session)} · ${d.source}` +
+      (list.length > 1 ? '<br>Starší: ' + list.slice(1, 6).map((x) => `${esc(x.track)} ${new Date(x.ts * 1000).toLocaleDateString('cs-CZ')}`).join(' · ') : '');
+    debriefsLoaded = list.length;
+  });
+}
+$('debriefBtn').onclick = async () => {
+  $('debriefBtn').textContent = '⏳ Generating…';
+  await fetch('/api/debrief', { method: 'POST' });
+  setTimeout(() => { loadDebriefs(); $('debriefBtn').textContent = '📝 Generate debrief now'; }, 4000);
+  setTimeout(loadDebriefs, 12000);
+};
 
 // ------------------------------------------------------------------ mapa
 function mapGeom(canvas) {
@@ -457,26 +569,102 @@ function pickVoice(l) {
   }
   return null;
 }
-let speakingCount = 0;
-function speak(text) {
-  if (!radioOn || !('speechSynthesis' in window)) return;
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = lang() === 'cs' ? 'cs-CZ' : 'en-GB';
-  const v = pickVoice(lang()); if (v) u.voice = v;
-  u.rate = 1.08;
-  speakingCount++;
-  Voice.pause();  // ať Bono neslyší sám sebe
-  const done = () => { speakingCount = Math.max(0, speakingCount - 1); if (!speakingCount) Voice.resume(); };
-  u.onend = done; u.onerror = done;
-  beep(660, 0.05, 0.04);  // „cvak“ rádia
-  speechSynthesis.speak(u);
+// Fronta rádia: urgentní hlášení jdou dopředu. Hlas iOS = okamžitě, Gemini hlas = realističtější
+// (s rádiovým filtrem), ale o 2–4 s později; při chybě se použije iOS.
+function speakIOS(text) {
+  return new Promise((resolve) => {
+    if (!('speechSynthesis' in window)) return resolve();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = lang() === 'cs' ? 'cs-CZ' : 'en-GB';
+    const v = pickVoice(lang()); if (v) u.voice = v;
+    u.rate = 1.08;
+    const t = setTimeout(resolve, 2500 + text.length * 90);   // pojistka, když onend nepřijde
+    u.onend = u.onerror = () => { clearTimeout(t); resolve(); };
+    beep(660, 0.05, 0.04);
+    speechSynthesis.speak(u);
+  });
 }
+
+let radioNoise = null;
+function squelch(when, dur = 0.07, vol = 0.05) {
+  if (!audioCtx) return;
+  if (!radioNoise) {
+    radioNoise = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.3, audioCtx.sampleRate);
+    const d = radioNoise.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const src = audioCtx.createBufferSource(); src.buffer = radioNoise;
+  const bp = audioCtx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 0.8;
+  const g = audioCtx.createGain(); g.gain.value = vol;
+  src.connect(bp); bp.connect(g); g.connect(audioCtx.destination);
+  src.start(when); src.stop(when + dur);
+}
+
+function radioChain() {
+  // týmové rádio: pásmová propust ~300–3400 Hz, lehké zkreslení a komprese
+  const hp = audioCtx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 320;
+  const lp = audioCtx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3300;
+  const ws = audioCtx.createWaveShaper();
+  const curve = new Float32Array(1024);
+  for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(2.2 * x) / Math.tanh(2.2); }
+  ws.curve = curve;
+  const comp = audioCtx.createDynamicsCompressor(); comp.threshold.value = -24; comp.ratio.value = 6;
+  const g = audioCtx.createGain(); g.gain.value = 1.3;
+  hp.connect(lp); lp.connect(ws); ws.connect(comp); comp.connect(g); g.connect(audioCtx.destination);
+  return hp;
+}
+
+async function playGemini(m) {
+  if (!audioCtx) return false;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), m.urgent ? 3000 : 8000);
+  let buf;
+  try {
+    const r = await fetch('/api/tts?id=' + m.id, { signal: ctrl.signal });
+    if (r.status !== 200) return false;
+    buf = await audioCtx.decodeAudioData(await r.arrayBuffer());
+  } catch (_) { return false; } finally { clearTimeout(timer); }
+  return new Promise((resolve) => {
+    const src = audioCtx.createBufferSource(); src.buffer = buf;
+    src.connect(radioChain());
+    const t0 = audioCtx.currentTime + 0.08;
+    squelch(audioCtx.currentTime);
+    src.start(t0);
+    src.onended = () => { squelch(audioCtx.currentTime, 0.09); setTimeout(() => resolve(true), 120); };
+  });
+}
+
+const Radio = {
+  queue: [], busy: false,
+  push(m) { if (m.urgent) this.queue.unshift(m); else this.queue.push(m); this.next(); },
+  async next() {
+    if (this.busy || !this.queue.length) return;
+    if (!radioOn) { this.queue = []; return; }
+    this.busy = true;
+    const m = this.queue.shift();
+    Voice.pause();  // ať Bono neslyší sám sebe
+    try {
+      const stale = !m.urgent && Date.now() / 1000 - m.ts > 30;
+      if (!stale) {
+        const eng = (S && S.settings.voice_engine) || 'mixed';
+        const useGemini = S && S.has_gemini && eng !== 'ios' && !m.urgent &&
+          (eng === 'gemini' || m.prio >= 2) && !(S.tts && S.tts.available === false);
+        if (!(useGemini && await playGemini(m))) await speakIOS(m.text);
+      }
+    } catch (_) { /* pokračuj */ }
+    this.busy = false;
+    if (!this.queue.length) Voice.resume();
+    this.next();
+  },
+};
+function speak(text) { Radio.push({ id: -1, text, urgent: true, ts: Date.now() / 1000 }); }
 function speakNew(msgs) {
   if (!msgs || !msgs.length) return;
+  if (msgs.some((m) => m.id > (lastSpoken || 0) && /debrief/i.test(m.text))) setTimeout(loadDebriefs, 500);
   const maxId = msgs[msgs.length - 1].id;
   if (lastSpoken === null) { lastSpoken = maxId; return; }  // nečti historii po načtení
   msgs.filter((m) => m.id > lastSpoken).forEach((m) => {
-    if (S.settings.voice !== false || m.prio === 3) speak(m.text);
+    if (radioOn && (S.settings.voice !== false || m.prio === 3)) Radio.push(m);
   });
   lastSpoken = Math.max(lastSpoken, maxId);
 }
@@ -599,7 +787,8 @@ async function startBono() {
   } catch (_) { /* bez zvuku */ }
   // iOS: hlas musí poprvé zaznít v reakci na klepnutí
   const name = (S && S.settings.engineer_name) || 'Bono';
-  speak(lang() === 'cs' ? `${name} tady. Slyšíme se.` : `${name} here. Radio check, loud and clear.`);
+  // přímo (ne přes frontu), aby iOS odemklo hlas v rámci klepnutí
+  speakIOS(lang() === 'cs' ? `${name} tady. Slyšíme se.` : `${name} here. Radio check, loud and clear.`);
   Voice.start();
   try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (_) { /* nepodstatné */ }
   $('bonoBtn').textContent = '⏹ Stop';
@@ -670,6 +859,8 @@ function fillSettings(s) {
   $('sModel').value = st.gemini_model || '';
   $('sName').value = st.engineer_name || 'Bono';
   $('sWake').value = st.wake_word || 'bono';
+  $('sVoiceEngine').value = st.voice_engine || 'mixed';
+  $('sTtsVoice').value = st.tts_voice || 'Charon';
   settingsLoaded = true;
 }
 $('saveBtn').onclick = async () => {
@@ -679,6 +870,7 @@ $('saveBtn').onclick = async () => {
     difficulty_override: ai === '' ? null : parseInt(ai, 10), voice: $('sVoice').checked,
     gemini_key: $('sKey').value.trim(), gemini_model: $('sModel').value.trim() || 'gemini-flash-lite-latest',
     engineer_name: $('sName').value.trim() || 'Bono', wake_word: ($('sWake').value.trim() || 'bono').toLowerCase(),
+    voice_engine: $('sVoiceEngine').value, tts_voice: $('sTtsVoice').value,
   };
   await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   $('saveBtn').textContent = 'Uloženo ✓';

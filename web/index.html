@@ -67,6 +67,7 @@
         <div class="row between"><span>Personal best</span><b id="pbTime" class="mono">–</b></div>
         <div class="row between"><span>Theoretical best</span><b id="theoTime" class="mono purple">–</b></div>
         <div class="row between"><span>Pace = AI difficulty</span><b id="matchAi" class="mono">–</b></div>
+        <div id="liveStrip" class="strip"></div>
       </div>
       <div class="card map-card">
         <canvas id="map"></canvas>
@@ -146,6 +147,64 @@
   </section>
 
   <!-- ENGINEER -->
+  <!-- STRATEGY -->
+  <section id="tab-strat" class="tab">
+    <div class="grid-race">
+      <div class="card">
+        <div class="label">Pit strategy</div>
+        <div id="planBig" class="lg">–</div>
+        <div id="planInfo" class="small"></div>
+      </div>
+      <div class="card">
+        <div class="label">Weather</div>
+        <div id="wxNow" class="lg">–</div>
+        <div id="wxForecast" class="forecast"></div>
+      </div>
+      <div class="card">
+        <div class="label">Cars around</div>
+        <table class="tbl small" id="aroundTable">
+          <thead><tr><th>Pos</th><th>Driver</th><th>Gap</th><th>Tyre</th><th>Pits</th><th>Last lap</th><th>Pace Δ</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <div class="label">Incidents &amp; damage</div>
+        <div id="incInfo" class="small">–</div>
+      </div>
+      <div class="card">
+        <div class="label">Tyre sets (available)</div>
+        <div id="setsInfo" class="small">Jen v závodě se zapnutou telemetrií.</div>
+      </div>
+      <div class="card">
+        <div class="label">Tyre degradation</div>
+        <div id="degInfo" class="small">–</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEBRIEF & SETUP -->
+  <section id="tab-debrief" class="tab">
+    <div class="card">
+      <div class="row between"><div class="label">Debrief</div>
+        <button id="debriefBtn">📝 Generate debrief now</button></div>
+      <div id="debriefText" class="debrief">Debrief se vytvoří automaticky na konci session (nebo tlačítkem / „Bono, debrief“).</div>
+      <div id="debriefOld" class="small muted"></div>
+    </div>
+    <div class="card">
+      <div class="label">Car balance (from wheel slip)</div>
+      <table class="tbl small" id="balanceTable">
+        <thead><tr><th></th><th>Slow</th><th>Medium</th><th>Fast</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="balanceInfo" class="small muted"></div>
+    </div>
+    <div class="card">
+      <div class="label">Setup suggestions</div>
+      <div id="setupAdvice">–</div>
+      <p class="muted small">Odhad z telemetrie (úhly skluzu kol, zamykání, protáčení, teploty). Měň vždy jednu věc a ověř ji na pár lapech.</p>
+    </div>
+  </section>
+
   <section id="tab-eng" class="tab">
     <div class="card chat-card">
       <div id="chat"></div>
@@ -157,6 +216,10 @@
         <button data-q="Jaká je moje pace a kolik chybí na target pro AI difficulty?">Pace / AI difficulty</button>
         <button data-q="status report">Status report</button>
         <button data-q="battery and overtake mode">Battery / Overtake</button>
+        <button data-q="what is the strategy, when do I box?">Strategy</button>
+        <button data-q="any damage?">Damage</button>
+        <button data-q="weather and rain?">Weather</button>
+        <button data-q="setup advice, how is the balance?">Setup</button>
       </div>
       <form id="askForm" class="row">
         <button type="button" id="micBtn" title="Mluvit">🎙️</button>
@@ -190,6 +253,15 @@
       <label>AI difficulty pro target lap time
         <input id="sAi" type="number" min="0" max="110" placeholder="auto (ze hry)"></label>
       <label class="check"><input id="sVoice" type="checkbox"> Team radio hlasem</label>
+      <label>Hlas Bona
+        <select id="sVoiceEngine">
+          <option value="mixed">Mixed: odpovědi na tvoje otázky realistickým Gemini hlasem, hlášení iOS</option>
+          <option value="gemini">Gemini hlas pro vše neurgentní (o 2–4 s později, free tier jen ~2/min)</option>
+          <option value="ios">Jen hlas iOS (okamžitě, offline)</option>
+        </select></label>
+      <label>Gemini hlas
+        <select id="sTtsVoice"><option>Charon</option><option>Fenrir</option><option>Orus</option>
+          <option>Puck</option><option>Kore</option><option>Aoede</option></select></label>
       <hr>
       <label>Gemini API klíč (volitelné, zdarma z aistudio.google.com)
         <input id="sKey" type="password" placeholder="nevyplněno = offline odpovědi"></label>
@@ -212,6 +284,10 @@
           <tr><td>UDP Action 6</td><td>Fuel</td></tr>
           <tr><td>UDP Action 7</td><td>Repeat (zopakuj poslední hlášení)</td></tr>
           <tr><td>UDP Action 8</td><td>Mute / Bono přestane mluvit sám od sebe</td></tr>
+          <tr><td>UDP Action 9</td><td>Strategy (plán zastávek, rejoin)</td></tr>
+          <tr><td>UDP Action 10</td><td>Damage report</td></tr>
+          <tr><td>UDP Action 11</td><td>Setup advice</td></tr>
+          <tr><td>UDP Action 12</td><td>Debrief</td></tr>
         </tbody></table>
       </details>
       <details>
@@ -235,6 +311,8 @@
   <button data-tab="corners">↪️<span>Corners</span></button>
   <button data-tab="laps">📋<span>Laps</span></button>
   <button data-tab="race">⛽<span>Race</span></button>
+  <button data-tab="strat">🧠<span>Strategy</span></button>
+  <button data-tab="debrief">📝<span>Debrief</span></button>
   <button data-tab="eng">🎧<span>Engineer</span></button>
   <button data-tab="set">⚙️<span>Settings</span></button>
 </nav>

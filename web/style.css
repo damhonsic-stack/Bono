@@ -123,3 +123,17 @@ nav#tabs button.active { color: var(--text); box-shadow: inset 0 2px var(--accen
   .tbl th:nth-child(5), .tbl td:nth-child(5), .tbl th:nth-child(6), .tbl td:nth-child(6) { display: none; }
   #cornerTable th:nth-child(4), #cornerTable td:nth-child(4) { display: none; }
 }
+
+.strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.strip span { background: #1b2130; border-radius: 6px; padding: 3px 8px; font-size: 13px; }
+.strip .sc { background: var(--yellow); color: #1a1400; font-weight: 800; }
+.strip .warn { background: #7c2d12; }
+.forecast { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.forecast div { background: #0f131b; border-radius: 8px; padding: 6px 8px; font-size: 12px; text-align: center; min-width: 64px; }
+.forecast .rain { border: 1px solid var(--blue); }
+.debrief { white-space: pre-wrap; line-height: 1.5; margin: 10px 0; font-size: 15px; }
+.bal-under { color: var(--blue); font-weight: 700; } .bal-over { color: var(--red); font-weight: 700; }
+.bal-neutral { color: var(--green); }
+.advice { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.advice b { display: block; } .advice i { font-style: normal; color: var(--muted); font-size: 13px; }
+.tbl tr.me td { background: #1d2a1f; }
