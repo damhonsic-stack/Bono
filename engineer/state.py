@@ -47,6 +47,8 @@ class Engine:
         self.format_warning = None
         self.track_version = 0
         self.listen_seq = 0          # požadavek na poslech (tlačítko na ovladači)
+        self.last_llm_model = None
+        self.last_llm_error = None
         self.prev_buttons = 0
         self._new_session(None)
 
@@ -611,6 +613,7 @@ class Engine:
                 'warning': self.format_warning,
                 'settings': {k: v for k, v in self.settings.items() if k != 'gemini_key'},
                 'has_gemini': bool(self.settings.get('gemini_key')),
+                'llm': {'model': self.last_llm_model, 'error': self.last_llm_error},
                 'session': {
                     'track_id': self.track_id,
                     'track': TRACKS.get(self.track_id, 'Track %s' % self.track_id)

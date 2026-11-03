@@ -15,7 +15,7 @@ DEFAULT_SETTINGS = {
     'difficulty_override': None,  # None = vezmi obtížnost ze hry
     'voice': True,
     'gemini_key': '',
-    'gemini_model': 'gemini-2.5-flash',
+    'gemini_model': 'gemini-flash-lite-latest',
     'udp_port': 20777,
     'http_port': 8080,
 }

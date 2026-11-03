@@ -121,7 +121,10 @@ battery / overtake · target / AI difficulty · say again · be quiet · talk to
 - **Úroveň inženýra**: Rookie (málo hlášení, jedna rada), Advanced, Pro (i drobné ztráty a sector hlášení)
 - **Reference**: Auto / Personal best / Session best / Fastest AI / Time Trial rival / Time Trial ghost
 - **AI difficulty**: prázdné = vezme se ze hry, nebo zadej vlastní číslo pro target lap time (např. v Time Trialu)
-- **Gemini API klíč** (volitelné): zdarma na <https://aistudio.google.com/apikey>.
+- **Gemini API klíč** (volitelné): zdarma na <https://aistudio.google.com/apikey>. Klíč se ukládá jen
+  lokálně do `data/settings.json` (na GitHub se nenahrává). Výchozí model `gemini-flash-lite-latest`
+  odpovídá zhruba za 1 s. Když je přetížený, Bono zkusí `gemini-3.5-flash` a `gemini-flash-latest`,
+  a když Gemini nejde vůbec, odpoví offline.
   Pozn.: studentské předplatné Gemini platí pro aplikaci Gemini, API klíč z AI Studia má vlastní free tier.
   Na free tieru může Google data použít ke zlepšování modelů. Posílají se ale jen čísla z telemetrie.
 

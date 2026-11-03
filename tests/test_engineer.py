@@ -318,5 +318,38 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(len(self.e.player_laps), laps)
 
 
+class GeminiTests(unittest.TestCase):
+    def setUp(self):
+        self.orig = llm._post
+
+    def tearDown(self):
+        llm._post = self.orig
+
+    def test_fallback_to_next_model_and_trim(self):
+        calls = []
+
+        def fake(url, body, key, timeout):
+            calls.append(url.split('/models/')[1].split(':')[0])
+            if len(calls) == 1:
+                raise llm.GeminiError('503: high demand')
+            return {'candidates': [{'finishReason': 'MAX_TOKENS', 'content': {'parts': [
+                {'text': 'Gap ahead 0.8. You are closing. Harvest'}]}}]}
+        llm._post = fake
+        text, model = llm.ask_with_fallback('k', 'gemini-flash-lite-latest', 'en', 'gap?', {})
+        self.assertEqual(calls[:2], ['gemini-flash-lite-latest', 'gemini-3.5-flash'])
+        self.assertEqual(text, 'Gap ahead 0.8. You are closing.')
+
+    def test_offline_when_gemini_down(self):
+        def fake(url, body, key, timeout):
+            raise llm.GeminiError('503: high demand')
+        llm._post = fake
+        e = run_sim('quali', laps=2, seed=8)
+        e.settings['gemini_key'] = 'k'
+        text, src = llm.answer(e, 'Bono, pace?')
+        self.assertEqual(src, 'offline')
+        self.assertTrue(text)
+        self.assertIn('503', e.last_llm_error)
+
+
 if __name__ == '__main__':
     unittest.main()

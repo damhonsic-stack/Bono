@@ -48,7 +48,33 @@ RULES:
 }
 
 
-def ask_gemini(api_key, model, lang, question, context, timeout=20, name='Bono'):
+# Pořadí modelů: rychlý "lite" alias jako první, při přetížení/nedostupnosti další.
+# Aliasy *-latest Google sám posouvá na nejnovější verzi, takže nezastarají.
+DEFAULT_MODEL = 'gemini-flash-lite-latest'
+FALLBACK_MODELS = ['gemini-flash-lite-latest', 'gemini-3.5-flash', 'gemini-flash-latest']
+
+
+class GeminiError(Exception):
+    pass
+
+
+def _post(url, body, api_key, timeout):
+    req = urllib.request.Request(url, data=json.dumps(body).encode('utf-8'), method='POST',
+                                 headers={'Content-Type': 'application/json',
+                                          'x-goog-api-key': api_key})
+    ctx = ssl.create_default_context()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            return json.loads(resp.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read().decode('utf-8'))['error']['message']
+        except (ValueError, KeyError, OSError):
+            msg = str(e)
+        raise GeminiError('%d: %s' % (e.code, msg))
+
+
+def ask_gemini(api_key, model, lang, question, context, timeout=8, name='Bono'):
     url = ('https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent' % model)
     body = {
         'systemInstruction': {'parts': [{'text': SYSTEM_PROMPT.get(lang, SYSTEM_PROMPT['en'])
@@ -58,18 +84,43 @@ def ask_gemini(api_key, model, lang, question, context, timeout=20, name='Bono')
             'parts': [{'text': 'DATA (JSON):\n' + json.dumps(context, ensure_ascii=False) +
                        '\n\nDRIVER: ' + question}],
         }],
-        'generationConfig': {'temperature': 0.3, 'maxOutputTokens': 300,
-                             'thinkingConfig': {'thinkingBudget': 0}},
+        # Gemini 3.x: thinkingLevel "low" = rychlá odpověď (v rádiu záleží na latenci)
+        # limit zahrnuje i "thinking" tokeny, proto rezerva
+        'generationConfig': {'temperature': 0.3, 'maxOutputTokens': 2048,
+                             'thinkingConfig': {'thinkingLevel': 'low'}},
     }
-    req = urllib.request.Request(url, data=json.dumps(body).encode('utf-8'), method='POST',
-                                 headers={'Content-Type': 'application/json',
-                                          'x-goog-api-key': api_key})
-    ctx = ssl.create_default_context()
-    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-        data = json.loads(resp.read().decode('utf-8'))
-    parts = data.get('candidates', [{}])[0].get('content', {}).get('parts', [])
-    text = ''.join(p.get('text', '') for p in parts).strip()
+    try:
+        data = _post(url, body, api_key, timeout)
+    except GeminiError as e:
+        if 'thinking' not in str(e).lower() and 'invalid argument' not in str(e).lower():
+            raise
+        body['generationConfig'].pop('thinkingConfig')  # starší model bez thinkingLevel
+        data = _post(url, body, api_key, timeout)
+    cand = data.get('candidates', [{}])[0]
+    parts = cand.get('content', {}).get('parts', [])
+    text = ''.join(p.get('text', '') for p in parts if not p.get('thought')).strip()
+    if text and cand.get('finishReason') == 'MAX_TOKENS':
+        cut = max(text.rfind('. '), text.rfind('! '), text.rfind('? '))
+        text = text[:cut + 1] if cut > 0 else ''  # uříznutá odpověď → jen celé věty
     return text or None
+
+
+def ask_with_fallback(api_key, preferred, lang, question, context, name='Bono'):
+    """Zkusí preferovaný model a pak zálohy. Vrátí (text, model) nebo vyhodí poslední chybu."""
+    models = [preferred] + [m for m in FALLBACK_MODELS if m != preferred]
+    last = None
+    for m in models:
+        if not m:
+            continue
+        try:
+            text = ask_gemini(api_key, m, lang, question, context, name=name)
+            if text:
+                return text, m
+        except (GeminiError, urllib.error.URLError, OSError, ValueError, KeyError, IndexError) as e:
+            last = e
+            if isinstance(e, GeminiError) and str(e).startswith(('401', '403')):
+                break  # špatný klíč – další modely nepomůžou
+    raise last or GeminiError('empty response')
 
 
 # ---------------------------------------------------------------- offline pravidla
@@ -298,12 +349,12 @@ def answer(engine, question):
     key = engine.settings.get('gemini_key')
     if key:
         try:
-            text = ask_gemini(key, engine.settings.get('gemini_model', 'gemini-2.5-flash'),
-                              engine.lang, question, engine.context_for_llm(),
-                              name=engine.settings.get('engineer_name', 'Bono'))
-            if text:
-                return text, 'gemini'
-        except (urllib.error.URLError, OSError, ValueError, KeyError, IndexError) as e:
-            fallback = answer_offline(engine, question)
-            return fallback + (' (Gemini nedostupné: %s)' % str(e)[:80]), 'offline'
+            text, model = ask_with_fallback(
+                key, engine.settings.get('gemini_model') or DEFAULT_MODEL, engine.lang, question,
+                engine.context_for_llm(), name=engine.settings.get('engineer_name', 'Bono'))
+            engine.last_llm_model = model
+            return text, 'gemini'
+        except Exception as e:  # noqa: BLE001 – v závodě vždy odpověz aspoň offline
+            engine.last_llm_error = str(e)[:200]
+            return answer_offline(engine, question), 'offline'
     return answer_offline(engine, question), 'offline'
