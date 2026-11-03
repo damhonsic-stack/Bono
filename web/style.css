@@ -24,6 +24,8 @@ header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; bord
 .mic.wake { background: #12351f; color: #86efac; }
 .mic.cmd { background: #4c0d0d; color: #fecaca; animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: .6; } }
+.heard { background: #12351f; color: #bbf7d0; font-size: 15px; }
+.mic.open { background: #14532d; color: #bbf7d0; }
 .hint { background: #1e293b; color: #cbd5e1; padding: 8px 16px; font-size: 13px; }
 .regs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
 .reg { background: #0f131b; border-radius: 10px; padding: 8px 10px; border-left: 4px solid var(--line); }

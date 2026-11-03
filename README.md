@@ -144,6 +144,10 @@ rekordy, kalibrace i debriefy zůstanou.
 panel velkých tlačítek: 🎙️ **Talk** (Bono poslouchá), **Status, Strategy, Gaps, Tyres, Fuel,
 Where?** (kde ztrácím), **Damage, Repeat, Mute**. Odpověď Bono řekne nahlas.
 
+**🎙️ Open mic** (tlačítko nahoře): zapneš ho před závodem a Bono poslouchá všechno, co řekneš,
+bez slova „Bono“. Stačí „gap ahead?“ nebo „when do I box?“. Pod lištou vidíš „Slyším: …“, tedy co
+mikrofon zachytil. Když Bono mluví, neposlouchá.
+
 Hlasové příkazy: *status report · strategy / when do I box · tyres · fuel · gap ahead / gap behind ·
 where am I losing time · battery / overtake · damage · weather · setup advice · debrief ·
 target / AI difficulty · say again · be quiet · talk to me · radio check*.

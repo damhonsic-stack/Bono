@@ -692,9 +692,12 @@ function beep(freq = 880, dur = 0.12, vol = 0.15) {
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const Voice = {
   rec: null, on: false, paused: false, mode: 'wake', cmdTimer: null, restartTimer: null, errors: 0,
+  open: (() => { try { return localStorage.getItem('bonoOpenMic') === '1'; } catch (_) { return false; } })(),
   wakeRe() {
     const w = ((S && S.settings.wake_word) || 'bono').toLowerCase().replace(/[^a-z0-9áéíóúůýčďěňřšťž ]/g, '');
-    const variants = w === 'bono' ? 'bono|bonno|bonnow|bonneau|bonó|buono|bueno|bonobo|bona|bonu|bonnie' : w;
+    // rozpoznávání často slyší „Bonnie“, „bone oh“, „bueno“… → bereme podobná slova
+    const variants = w === 'bono'
+      ? 'b[ou]n+[aeiouy]{1,2}[a-z]{0,3}|bone ?oh?|bo no|buono|bueno|bonneau|bonó|volno' : w;
     return new RegExp('\\b(?:hey |ok )?(?:' + variants + ')\\b[,.!? ]*', 'i');
   },
   supported() { return !!SR; },
@@ -716,7 +719,7 @@ const Voice = {
     this.mode = 'command'; beep(880, 0.12);
     setMic('cmd');
     clearTimeout(this.cmdTimer);
-    this.cmdTimer = setTimeout(() => { this.mode = 'wake'; setMic('wake'); }, 8000);
+    this.cmdTimer = setTimeout(() => { this.mode = 'wake'; setMic(this.open ? 'open' : 'wake'); }, 8000);
   },
   _create() {
     const rec = new SR();
@@ -739,7 +742,7 @@ const Voice = {
     clearTimeout(this.restartTimer);
     this.restartTimer = setTimeout(() => {
       if (!this.on || this.paused) return;
-      try { this.rec.start(); setMic(this.mode === 'command' ? 'cmd' : 'wake'); } catch (_) { /* už běží */ }
+      try { this.rec.start(); setMic(this.mode === 'command' ? 'cmd' : (this.open ? 'open' : 'wake')); } catch (_) { /* už běží */ }
     }, delay);
   },
   _onResult(e) {
@@ -748,8 +751,14 @@ const Voice = {
       const text = r[0].transcript.trim();
       if (!text) continue;
       const m = text.match(this.wakeRe());
+      showHeard(text, r.isFinal);
       if (!r.isFinal) {
         if (m || this.mode === 'command') setMic('cmd', text);
+        continue;
+      }
+      if (this.open && this.mode !== 'command') {          // open mic: každá věta je otázka
+        const q = text.replace(this.wakeRe(), '').trim();
+        if (!FILLER.test(q.toLowerCase())) this._submit(q);
         continue;
       }
       if (this.mode === 'command') {
@@ -764,18 +773,37 @@ const Voice = {
   },
   _submit(q) {
     q = q.trim();
-    setMic('wake');
+    setMic(this.open ? 'open' : 'wake');
     if (!q) return;
     beep(520, 0.08);
     ask(q, true);
   },
 };
 
+const FILLER = /^(|ok|okay|yeah|yes|yep|no|nope|thanks|thank you|cheers|uh|um|hmm|ah|oh|copy|jo|jasně|dík|díky|ne|ano)[.!?]?$/;
+let heardTimer = null;
+function showHeard(text, final) {
+  const el = $('heard');
+  if (!el) return;
+  el.textContent = 'Slyším: ' + text + (final ? '' : ' …');
+  el.classList.remove('hidden');
+  clearTimeout(heardTimer);
+  heardTimer = setTimeout(() => el.classList.add('hidden'), 6000);
+}
+function setOpenMic(on) {
+  Voice.open = on;
+  try { localStorage.setItem('bonoOpenMic', on ? '1' : '0'); } catch (_) { /* */ }
+  $('openMicBtn').textContent = on ? '🎙️ Open mic: ON' : '🎙️ Open mic: OFF';
+  $('openMicBtn').className = on ? 'radio-on' : 'radio-off';
+  if (on && !radioOn) startBono();          // klepnutí = povolení zvuku i mikrofonu
+  if (Voice.on) setMic(on ? 'open' : 'wake');
+}
+
 function setMic(state, detail) {
   const el = $('micState');
   const name = (S && S.settings.engineer_name) || 'Bono';
   const labels = {
-    off: '🎙️ off', wake: `👂 say “${name}”`, cmd: `🔴 ${name} listening…`,
+    off: '🎙️ off', wake: `👂 say “${name}”`, cmd: `🔴 ${name} listening…`, open: `🟢 ${name} is listening`,
   };
   el.textContent = labels[state] || state;
   el.className = 'mic ' + state;
@@ -811,6 +839,8 @@ function stopBono() {
   $('bonoBtn').className = 'radio-off';
 }
 $('bonoBtn').onclick = () => (radioOn ? stopBono() : startBono());
+$('openMicBtn').onclick = () => setOpenMic(!Voice.open);
+setTimeout(() => setOpenMic(Voice.open && false), 0);   // po načtení vždy OFF (zapíná se klepnutím)
 $('micState').onclick = () => { if (Voice.on) Voice.listenNow(); };
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && radioOn && 'wakeLock' in navigator) {
