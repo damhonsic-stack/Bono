@@ -58,6 +58,7 @@ class Engine:
         self.last_llm_error = None
         self.prev_buttons = 0
         self.tts = GeminiTTS()
+        self.presence = {}           # id zařízení -> (čas, má mikrofon) – kde běží „Start Bono“
         self.session_time = 0.0
         self._new_session(None)
 
@@ -782,6 +783,15 @@ class Engine:
         threading.Thread(target=work, daemon=True).start()
         return True
 
+    def heartbeat(self, dev_id, mic, name=''):
+        self.presence[str(dev_id)[:40]] = (time.time(), bool(mic), str(name)[:40])
+
+    def voice_devices(self):
+        now = time.time()
+        live = [(k, v) for k, v in self.presence.items() if now - v[0] < 12]
+        return {'count': len(live), 'mic': sum(1 for _, v in live if v[1]),
+                'names': [v[2] for _, v in live]}
+
     def snapshot_theoretical(self):
         traces = [l.trace for l in self.player_laps if l.valid and l.clean]
         return theoretical_best(traces, self.corners)
@@ -1003,6 +1013,7 @@ class Engine:
                                            len(self.status) else None, s),
                 'format': self.packet_format,
                 'listen_seq': self.listen_seq,
+                'voice_devices': self.voice_devices(),
                 'strategy': self.strategy_snapshot(),
                 'around': self.opponents.around(self.lap, self.player, self.names()),
                 'incidents': self.incidents.summary(me, self.damage[self.player]

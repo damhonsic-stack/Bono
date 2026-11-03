@@ -89,6 +89,12 @@ function render() {
   renderRegs(s);
   renderStrip(s);
   $('muteBtn').textContent = s.settings.voice === false ? '🔊 Unmute' : '🔇 Mute';
+  const vd = s.voice_devices || {};
+  if (!radioOn && vd.count) {
+    $('micState').textContent = `🎧 Bono on ${vd.names.join(', ')}`;
+    $('micState').className = 'mic wake';
+    $('micHint').classList.add('hidden');
+  }
   $('pad').querySelector('.talk').classList.toggle('live', Voice.mode === 'command' && Voice.on);
   if (document.querySelector('#tab-strat.active')) renderStrategy(s);
   if (document.querySelector('#tab-debrief.active')) renderSetup(s);
@@ -837,23 +843,50 @@ async function ask(q, viaVoice) {
   } catch (e) { addBubble('No connection to the server.', 'eng'); }
 }
 // ------------------------------------------------------------------ ovládací panel
+// Bono může mluvit a poslouchat na jiném zařízení (např. MacBook s AirPods) a tenhle displej
+// (iPad) slouží jen jako dálkové ovládání. Zařízení se zapnutým Bonem se hlásí serveru.
+const deviceId = (() => {
+  try {
+    let id = localStorage.getItem('bonoDevice');
+    if (!id) { id = Math.random().toString(36).slice(2, 10); localStorage.setItem('bonoDevice', id); }
+    return id;
+  } catch (_) { return Math.random().toString(36).slice(2, 10); }
+})();
+const deviceName = /iPad|Macintosh.*Mobile/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform))
+  ? 'iPad' : /iPhone/.test(navigator.userAgent) ? 'iPhone' : /Mac/.test(navigator.platform) ? 'Mac' : 'PC';
+setInterval(() => {
+  if (!radioOn) return;
+  fetch('/api/presence', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: deviceId, mic: Voice.on, name: deviceName }) }).catch(() => {});
+}, 4000);
+function voiceElsewhere() {
+  const v = S && S.voice_devices;
+  return !radioOn && v && v.count > 0;
+}
+async function postAction(action) {
+  try {
+    await fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }) });
+  } catch (_) { /* bez spojení */ }
+}
+
 document.querySelectorAll('#pad button').forEach((b) => {
   b.onclick = async () => {
     const act = b.dataset.act;
+    b.classList.add('on'); setTimeout(() => b.classList.remove('on'), 400);
     if (act === 'talk') {
-      if (!radioOn) { await startBono(); }
-      if (Voice.on) Voice.listenNow();
-      else $('tabs').querySelector('[data-tab=eng]').click();   // bez mikrofonu → psaní
+      if (Voice.on) { Voice.listenNow(); return; }                 // mikrofon na tomhle zařízení
+      const v = S && S.voice_devices;
+      if (!radioOn && v && v.mic > 0) { postAction('listen'); return; }   // poslouchá jiné zařízení (Mac)
+      if (SR && window.isSecureContext) { startBono(); setTimeout(() => Voice.listenNow(), 300); return; }
+      $('tabs').querySelector('[data-tab=eng]').click();            // bez mikrofonu → psaní / diktování
+      $('askInput').focus();
       return;
     }
     let action = act;
     if (act === 'mute') action = S && S.settings.voice === false ? 'unmute' : 'mute';
-    if (!radioOn) await startBono();   // ať odpověď uslyšíš
-    b.classList.add('on'); setTimeout(() => b.classList.remove('on'), 400);
-    try {
-      await fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }) });
-    } catch (_) { /* bez spojení */ }
+    if (!radioOn && !voiceElsewhere()) startBono();   // nikde jinde Bono nemluví → zapni ho tady
+    postAction(action);
   };
 });
 

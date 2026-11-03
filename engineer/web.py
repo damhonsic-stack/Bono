@@ -88,6 +88,10 @@ def make_handler(engine, web_root):
             if path == '/api/reset_corners':
                 engine.reset_corners()
                 return self._json({'ok': True})
+            if path == '/api/presence':
+                with engine.lock:
+                    engine.heartbeat(data.get('id', '?'), data.get('mic'), data.get('name', ''))
+                return self._json({'ok': True})
             if path == '/api/action':
                 action = data.get('action', '')
                 if action not in ('status', 'strategy', 'gaps', 'gap', 'tyres', 'fuel', 'damage',
