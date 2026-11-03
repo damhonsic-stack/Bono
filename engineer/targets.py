@@ -15,10 +15,10 @@ class Targets:
     def base100(self, track_id):
         c = self.cal.get(str(track_id))
         if c and c.get('base100_ms'):
-            return c['base100_ms'], 'kalibrováno (%d×)' % c.get('samples', 1)
+            return c['base100_ms'], 'calibrated (%d×)' % c.get('samples', 1)
         s = POLE_BASELINE.get(track_id)
         if s:
-            return s * 1000.0, 'odhad'
+            return s * 1000.0, 'estimate'
         return None, None
 
     def target_lap(self, track_id, difficulty):

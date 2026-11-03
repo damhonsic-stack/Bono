@@ -54,10 +54,10 @@ function render() {
   const s = S;
   cls($('conn'), 'on', s.connected);
   const sess = s.session || {};
-  $('track').textContent = sess.track || (s.connected ? 'Načítám session…' : 'Čekám na data ze hry…');
+  $('track').textContent = sess.track || (s.connected ? 'Načítám session…' : 'Čekám na telemetrii ze hry…');
   $('stype').textContent = sess.type || '';
   $('ai').textContent = sess.ai !== null && sess.ai !== undefined ? 'AI ' + sess.ai : '';
-  $('weather').textContent = sess.weather ? `${sess.weather} · trať ${sess.track_temp}°C` : '';
+  $('weather').textContent = sess.weather ? `${sess.weather} · track ${sess.track_temp}°C · air ${sess.air_temp}°C` : '';
   $('warning').textContent = s.warning || '';
   cls($('warning'), 'hidden', !s.warning);
   if (!settingsLoaded) fillSettings(s);
@@ -119,8 +119,8 @@ function renderLive(s) {
     $('tgtName').textContent = `AI ${t.ai}`;
     $('tgtTime').textContent = fmtLap(t.lap_ms);
     let extra = t.src;
-    if (t.gap_best !== undefined) extra += ` · tvoje nejlepší ${fmtDelta(t.gap_best)} s`;
-    if (t.ai_session_best) extra += ` · nejrychlejší AI ${fmtLap(t.ai_session_best)}`;
+    if (t.gap_best !== undefined) extra += ` · session best ${fmtDelta(t.gap_best)} s`;
+    if (t.ai_session_best) extra += ` · fastest AI ${fmtLap(t.ai_session_best)}`;
     $('tgtSrc').textContent = extra;
     $('matchAi').textContent = t.match_ai !== undefined && t.match_ai !== null ? '~' + t.match_ai : '–';
   }
@@ -189,10 +189,10 @@ function drawMap() {
     let col = '#64748b';
     if (loss !== null && loss !== undefined) col = loss > 80 ? '#ef4444' : loss > 30 ? '#f59e0b' : '#22c55e';
     ctx.fillStyle = col;
-    ctx.beginPath(); ctx.arc(px, pz, 11, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#0b0d12'; ctx.font = 'bold 10px -apple-system, sans-serif';
+    ctx.beginPath(); ctx.arc(px, pz, 12, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#0b0d12'; ctx.font = 'bold 9px -apple-system, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(cn.name.replace('Z', ''), px, pz + 0.5);
+    ctx.fillText(cn.name, px, pz + 0.5);
   });
   mapBase = ctx.getImageData(0, 0, c.width, c.height);
   mapBase._g = g;
@@ -219,15 +219,15 @@ window.addEventListener('resize', drawMap);
 // ------------------------------------------------------------------ zatáčky
 function renderCorners(s) {
   $('cRef').textContent = (s.reference && s.reference.name) || 'reference';
-  $('cLap').textContent = s.compare_lap ? `poslední analyzované kolo: ${s.compare_lap}` : 'zatím žádné analyzované kolo';
+  $('cLap').textContent = s.compare_lap ? `analyzovaný lap: ${s.compare_lap}` : 'zatím žádný analyzovaný lap';
   const rows = (s.corners || []).map((c) => {
     const l = c.last;
     const loss = l ? l.loss : null;
     const bar = loss > 0 ? `<span class="loss-bar" style="width:${Math.min(80, loss / 4)}px"></span>` : '';
     const lc = loss === null ? '' : loss > 0 ? 'loss' : 'gain';
     const ac = c.avg_loss === null ? '' : c.avg_loss > 0 ? 'loss' : 'gain';
-    const brake = l && l.brake_diff_m !== null ? (l.brake_diff_m < 0 ? `o ${-l.brake_diff_m} m dřív` : l.brake_diff_m > 0 ? `o ${l.brake_diff_m} m později` : 'stejně') : '–';
-    const thr = l && l.throttle_diff_m !== null ? (l.throttle_diff_m > 0 ? `o ${l.throttle_diff_m} m později` : l.throttle_diff_m < 0 ? `o ${-l.throttle_diff_m} m dřív` : 'stejně') : '–';
+    const brake = l && l.brake_diff_m !== null ? (l.brake_diff_m < 0 ? `${-l.brake_diff_m} m dřív` : l.brake_diff_m > 0 ? `${l.brake_diff_m} m později` : 'stejně') : '–';
+    const thr = l && l.throttle_diff_m !== null ? (l.throttle_diff_m > 0 ? `${l.throttle_diff_m} m později` : l.throttle_diff_m < 0 ? `${-l.throttle_diff_m} m dřív` : 'stejně') : '–';
     const tips = l && l.tips_text && l.tips_text.length ? l.tips_text.join('; ') : (l ? 'OK' : '');
     return `<tr><td><b>${c.name}</b></td>
       <td class="num ${lc}">${loss === null ? '–' : fmtDelta(loss, 3)}${bar}</td>
@@ -236,7 +236,7 @@ function renderCorners(s) {
       <td>${brake}</td><td>${thr}</td><td>${esc(tips)}</td></tr>`;
   });
   $('cornerTable').querySelector('tbody').innerHTML = rows.join('') ||
-    '<tr><td colspan="7" class="muted">Odjeď jedno čisté platné kolo. Zatáčky se detekují automaticky.</td></tr>';
+    '<tr><td colspan="7" class="muted">Odjeď jeden čistý valid lap. Turns se detekují automaticky.</td></tr>';
 }
 
 let cmp = null;
@@ -253,7 +253,7 @@ function drawChart() {
   ctx.clearRect(0, 0, w, h);
   if (!cmp) {
     ctx.fillStyle = '#8b93a7'; ctx.font = '15px -apple-system';
-    ctx.fillText('Graf se zobrazí po prvním analyzovaném kole.', 16, 40);
+    ctx.fillText('Graf se zobrazí po prvním analyzovaném lapu.', 16, 40);
     return;
   }
   const L = cmp.dist[cmp.dist.length - 1] || 1;
@@ -284,11 +284,11 @@ function drawChart() {
   // delta
   const dmax = Math.max(100, ...cmp.delta.map(Math.abs));
   ctx.strokeStyle = '#3b4456'; ctx.beginPath(); ctx.moveTo(40, dl.y + dl.h / 2); ctx.lineTo(w, dl.y + dl.h / 2); ctx.stroke();
-  ctx.fillText('Δ s', 2, dl.y + 10);
+  ctx.fillText('delta', 2, dl.y + 10);
   ctx.fillText(fmtDelta(dmax), 2, dl.y + 22);
   line(cmp.delta, '#facc15', dl.y, dl.h, dmax, -dmax);
   // pedály
-  ctx.fillText('plyn', 2, pd.y + 12); ctx.fillText('brzda', 2, pd.y + pd.h - 4);
+  ctx.fillText('throttle', 2, pd.y + 12); ctx.fillText('brake', 2, pd.y + pd.h - 4);
   line(cmp.ref_throttle, 'rgba(56,189,248,.7)', pd.y, pd.h / 2 - 2, 1, 0, 1.5);
   line(cmp.throttle, 'rgba(34,197,94,.9)', pd.y, pd.h / 2 - 2, 1, 0, 1.5);
   line(cmp.ref_brake, 'rgba(56,189,248,.7)', pd.y + pd.h / 2 + 2, pd.h / 2 - 2, 1, 0, 1.5);
@@ -299,7 +299,7 @@ function drawChart() {
 function renderLaps(s) {
   const best = s.best ? s.best.time : null;
   const rows = (s.laps || []).slice().reverse().map((l) => {
-    const comp = { 16: 'S', 17: 'M', 18: 'H', 7: 'I', 8: 'W' }[l.compound] || '';
+    const comp = { 16: 'Soft', 17: 'Medium', 18: 'Hard', 7: 'Inter', 8: 'Wet' }[l.compound] || '';
     return `<tr class="${l.valid ? '' : 'inv'} ${l.time === best ? 'best' : ''}">
       <td>${l.lap}</td><td class="num">${fmtLap(l.time)}</td>
       <td class="num">${fmtSec(l.sectors[0])}</td><td class="num">${fmtSec(l.sectors[1])}</td><td class="num">${fmtSec(l.sectors[2])}</td>
@@ -307,7 +307,7 @@ function renderLaps(s) {
       <td>${comp}${l.tyre_age !== undefined ? ' ' + l.tyre_age : ''}</td>
       <td>${l.valid ? '' : '⚠️'}${l.clean ? '' : ' 🅿️'}</td></tr>`;
   });
-  $('lapTable').querySelector('tbody').innerHTML = rows.join('') || '<tr><td colspan="8" class="muted">Zatím žádná kola.</td></tr>';
+  $('lapTable').querySelector('tbody').innerHTML = rows.join('') || '<tr><td colspan="8" class="muted">Zatím žádné laps.</td></tr>';
 }
 
 function loadHistory() {
@@ -319,7 +319,7 @@ function loadHistory() {
     const pts = h.filter((e) => e.valid && e.lap_ms);
     if (pts.length < 2) {
       ctx.fillStyle = '#8b93a7'; ctx.font = '15px -apple-system';
-      ctx.fillText('Málo dat. Graf zlepšování se ukáže po víc kolech.', 16, 40); return;
+      ctx.fillText('Málo dat. Graf se ukáže po víc lapech.', 16, 40); return;
     }
     const ys = pts.map((p) => p.lap_ms);
     const min = Math.min(...ys), max = Math.min(Math.max(...ys), min * 1.06);
@@ -344,24 +344,24 @@ function renderRace(s) {
   const f = r.fuel;
   if (f) {
     const d = f.game_delta_laps;
-    $('fuelBig').textContent = (d > 0 ? '+' : '') + d.toFixed(2) + ' kola';
+    $('fuelBig').textContent = (d > 0 ? '+' : '') + d.toFixed(2) + ' laps';
     $('fuelBig').style.color = d < 0 ? 'var(--red)' : 'var(--green)';
-    $('fuelInfo').innerHTML = `V nádrži ${f.kg} kg (hodnota z MFD ve hře)` +
-      (f.burn_per_lap ? `<br>Spotřeba ${f.burn_per_lap} kg/kolo · zbývá ${f.laps_left} kol · můj odhad ${f.own_delta_laps > 0 ? '+' : ''}${f.own_delta_laps} kola` : '<br>Spotřebu spočítám po 2 kolech.');
+    $('fuelInfo').innerHTML = `Fuel in tank ${f.kg} kg · fuel delta z MFD ve hře` +
+      (f.burn_per_lap ? `<br>Fuel burn ${f.burn_per_lap} kg/lap · ${f.laps_left} laps to go · můj odhad ${f.own_delta_laps > 0 ? '+' : ''}${f.own_delta_laps} laps` : '<br>Fuel burn spočítám po 2 lapech.');
   }
   const g = r.gaps || {};
   $('gapAhead').textContent = g.ahead ? fmtDelta(g.ahead).replace('+', '') + ' s' : '–';
   $('gapBehind').textContent = g.behind ? fmtDelta(g.behind).replace('+', '') + ' s' : '–';
   $('gapAheadTrend').innerHTML = g.ahead_trend === undefined ? '' :
-    g.ahead_trend < 0 ? `<span class="gain">▼ stahuješ ${fmtDelta(-g.ahead_trend).replace('+', '')} s/kolo</span>` +
-      (g.catch_in_laps ? ` · dojedeš ho za ~${g.catch_in_laps} kol` : '')
-      : `<span class="loss">▲ ujíždí ${fmtDelta(g.ahead_trend).replace('+', '')} s/kolo</span>`;
+    g.ahead_trend < 0 ? `<span class="gain">▼ stahuješ ${fmtDelta(-g.ahead_trend).replace('+', '')} s/lap</span>` +
+      (g.catch_in_laps ? ` · dojedeš ho za ~${g.catch_in_laps} laps` : '')
+      : `<span class="loss">▲ ujíždí ${fmtDelta(g.ahead_trend).replace('+', '')} s/lap</span>`;
   $('gapBehindTrend').innerHTML = g.behind_trend === undefined ? '' :
-    g.behind_trend < 0 ? `<span class="loss">▼ dojíždí tě ${fmtDelta(-g.behind_trend).replace('+', '')} s/kolo</span>`
-      : `<span class="gain">▲ ztrácí ${fmtDelta(g.behind_trend).replace('+', '')} s/kolo</span>`;
+    g.behind_trend < 0 ? `<span class="loss">▼ dojíždí tě ${fmtDelta(-g.behind_trend).replace('+', '')} s/lap</span>`
+      : `<span class="gain">▲ ztrácí ${fmtDelta(g.behind_trend).replace('+', '')} s/lap</span>`;
   const t = r.tyres;
   if (t) {
-    $('tyreCompound').textContent = `· ${t.compound} (${t.actual}) · ${t.age} kol`;
+    $('tyreCompound').textContent = `· ${t.compound} (${t.actual}) · tyre age ${t.age} laps`;
     ['FL', 'FR', 'RL', 'RR'].forEach((w) => {
       const wear = t.wear ? t.wear[w] : null;
       const surf = t.surface ? t.surface[w] : null, inner = t.inner ? t.inner[w] : null;
@@ -370,12 +370,12 @@ function renderRace(s) {
         `<span>${surf !== null ? surf + '° / ' + inner + '°' : ''}</span>`;
       el.style.borderColor = wear === null ? '' : wear > 60 ? 'var(--red)' : wear > 40 ? 'var(--yellow)' : 'var(--green)';
     });
-    $('tyreInfo').textContent = t.wear_per_lap ? `Opotřebení ${t.wear_per_lap} %/kolo · 70 % za ~${t.laps_to_70} kol` : '';
+    $('tyreInfo').textContent = (t.wear_per_lap ? `Tyre wear ${t.wear_per_lap} %/lap · 70 % za ~${t.laps_to_70} laps · ` : '') + 'surface / inner temp';
   }
   const p = r.pace;
-  $('paceInfo').innerHTML = `Pozice <b>P${r.position}</b> · zastávky ${r.pit_stops}<br>` + (p ?
-    `Poslední <b class="mono">${fmtLap(p.last)}</b> · průměr 3 kol <b class="mono">${fmtLap(p.avg3)}</b><br>` +
-    `Trend <span class="${p.trend > 0 ? 'loss' : 'gain'}">${fmtDelta(p.trend, 3)} s</span>` : 'Tempo spočítám po 2 kolech.');
+  $('paceInfo').innerHTML = `Position <b>P${r.position}</b> · pit stops ${r.pit_stops}<br>` + (p ?
+    `Last lap <b class="mono">${fmtLap(p.last)}</b> · avg 3 laps <b class="mono">${fmtLap(p.avg3)}</b><br>` +
+    `Lap time trend <span class="${p.trend > 0 ? 'loss' : 'gain'}">${fmtDelta(p.trend, 3)} s</span>` : 'Pace spočítám po 2 lapech.');
 }
 
 // ------------------------------------------------------------------ hlas
@@ -409,10 +409,10 @@ function speakNew(msgs) {
 let wakeLock = null;
 $('radioBtn').onclick = async () => {
   radioOn = !radioOn;
-  $('radioBtn').textContent = radioOn ? '🔊 Rádio' : '🔇 Rádio';
+  $('radioBtn').textContent = radioOn ? '🔊 Radio' : '🔇 Radio';
   $('radioBtn').className = radioOn ? 'radio-on' : 'radio-off';
   if (radioOn) {
-    speak((S && S.settings.lang === 'en') ? 'Radio check.' : 'Rádio funguje.');
+    speak('Radio check.');
     try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (_) { /* nepodstatné */ }
   } else if ('speechSynthesis' in window) speechSynthesis.cancel();
 };

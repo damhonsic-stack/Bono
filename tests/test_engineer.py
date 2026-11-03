@@ -124,7 +124,7 @@ class TargetTests(unittest.TestCase):
         lap95, src = t.target_lap(17, 95)
         lap100, _ = t.target_lap(17, 100)
         self.assertGreater(lap95, lap100)
-        self.assertEqual(src, 'odhad')
+        self.assertEqual(src, 'estimate')
         self.assertEqual(t.matching_difficulty(17, lap95), 95)
 
     def test_calibration(self):
@@ -132,7 +132,7 @@ class TargetTests(unittest.TestCase):
         t.calibrate(17, 90, 66000)
         lap90, src = t.target_lap(17, 90)
         self.assertAlmostEqual(lap90, 66000, delta=1)
-        self.assertTrue(src.startswith('kalibrováno'))
+        self.assertTrue(src.startswith('calibrated'))
 
 
 class RaceTests(unittest.TestCase):

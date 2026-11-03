@@ -10,16 +10,22 @@ SYSTEM_PROMPT = {
     'cs': """Jsi závodní inženýr F1 týmu a mluvíš se svým jezdcem přes týmové rádio během hry F1 25.
 PRAVIDLA:
 - Odpovídej česky, maximálně 2–3 krátké věty, jako v rádiu. Žádné odrážky, žádný markdown.
+- Technické F1 pojmy VŽDY anglicky, zbytek věty česky. Např.: lap, lap time, sector, delta, gap ahead,
+  gap behind, pace, apex, braking point, exit, minimum speed, full throttle, gear, tyre wear, tyre temps,
+  Soft/Medium/Hard/Intermediate/Wet, fuel, fuel delta, lift and coast, box, pit stop, undercut, overcut,
+  DRS, ERS, straight mode, overtake mode, personal best, session best, target, AI difficulty.
+  Příklad: "V T4 ztrácíš dvě desetiny, braking point máš o 12 metrů dřív."
+- Zatáčky označuj T1, T2, T3 … (Turn), nikdy česky.
 - Používej VÝHRADNĚ čísla z JSON dat níže. Nic si nevymýšlej. Když údaj chybí, řekni to.
 - Časy říkej v sekundách s jedním až dvěma desetinnými místy (např. "ztrácíš dvě desetiny").
 - loss / avg_loss_ms jsou milisekundy ztráty v úseku zatáčky oproti referenci (kladné = ztráta).
-- brake_diff_m záporné = brzdí dřív než reference; throttle_diff_m kladné = na plný plyn později.
+- brake_diff_m záporné = braking point dřív než reference; throttle_diff_m kladné = full throttle později.
 - ahead_trend záporné = jezdec stahuje auto před sebou; behind_trend záporné = auto za ním ho dojíždí.
-- fuel own_delta_laps / game_delta_laps: kladné = rezerva paliva v kolech, záporné = nedojede bez šetření.
-- tyre wear jsou procenta opotřebení (RL, RR, FL, FR = zadní levá, zadní pravá, přední levá, přední pravá).
-- target.lap_ms je cílový čas pro danou obtížnost AI (odhad), match_ai = obtížnost odpovídající tempu jezdce.
-- Dávej konkrétní, akční rady (kde brzdit, kde nést rychlost), ne obecné fráze.
-- Zatáčky jsou číslované automaticky (Z1, Z2 …) podle pořadí na trati, ne podle oficiálního číslování.""",
+- fuel game_delta_laps (z MFD ve hře) / own_delta_laps: kladné = rezerva v lapech, záporné = nutný lift and coast.
+- tyre wear jsou procenta (RL, RR, FL, FR = rear left, rear right, front left, front right).
+- target.lap_ms je target lap time pro danou AI difficulty (odhad), match_ai = AI difficulty odpovídající pace jezdce.
+- Dávej konkrétní, akční rady (braking point, minimum speed v apexu, exit), ne obecné fráze.
+- Turns jsou číslované automaticky (T1, T2 …) podle pořadí na trati, ne podle oficiálního číslování.""",
     'en': """You are an F1 race engineer talking to your driver over team radio during the game F1 25.
 RULES:
 - Answer in English, max 2-3 short radio-style sentences. No bullet points, no markdown.
@@ -31,7 +37,7 @@ RULES:
 - tyre wear is percent (RL, RR, FL, FR).
 - target.lap_ms is the estimated target lap for the AI difficulty; match_ai = difficulty matching driver pace.
 - Give concrete, actionable advice.
-- Corners are auto-numbered (Z1, Z2 ...) in track order, not official turn numbers.""",
+- Corners are auto-numbered T1, T2 ... in track order, not official turn numbers.""",
 }
 
 
@@ -60,10 +66,10 @@ def ask_gemini(api_key, model, lang, question, context, timeout=20):
 
 # ---------------------------------------------------------------- offline pravidla
 KEYWORDS = [
-    ('tyres', ['gum', 'pneu', 'tyre', 'tire', 'opotřeb', 'opotreb']),
+    ('tyres', ['gum', 'pneu', 'tyre', 'tire', 'opotřeb', 'opotreb', 'wear', 'soft', 'medium', 'hard']),
     ('fuel', ['paliv', 'benz', 'fuel', 'nádrž', 'nadrz']),
     ('gap', ['mezer', 'gap', 'před', 'pred', 'za mnou', 'dojíž', 'dojiz', 'stahu', 'behind', 'ahead']),
-    ('corners', ['zatáč', 'zatac', 'ztrác', 'ztrac', 'corner', 'losing', 'kde']),
+    ('corners', ['zatáč', 'zatac', 'ztrác', 'ztrac', 'corner', 'turn', 'apex', 'losing', 'kde']),
     ('target', ['obtížn', 'obtizn', 'ai ', 'cíl', 'cil', 'target', 'difficulty']),
     ('pace', ['tempo', 'pace', 'čas', 'cas', 'kolo', 'lap']),
 ]
@@ -90,11 +96,11 @@ def answer_offline(engine, question):
         w = t['wear']
         wheel = max(w, key=w.get)
         msg = R.say(lang, 'tyre_wear', w=round(t['max_wear']), wheel=R.WHEEL_NAMES[lang][wheel])
-        msg += (' %s, %d kol.' if cs else ' %s, %d laps old.') % (t['compound'], t['age'])
+        msg += (' %s, tyre age %d laps.' if cs else ' %s, %d laps old.') % (t['compound'], t['age'])
         if t.get('wear_per_lap'):
             wpl, l70 = '%.1f' % t['wear_per_lap'], '%s' % t['laps_to_70']
             if cs:
-                msg += ' Ubývá %s %% za kolo, 70 %% za %s kol.' % (
+                msg += ' Wear %s %% za lap, 70 %% za %s laps.' % (
                     wpl.replace('.', ','), l70.replace('.', ','))
             else:
                 msg += ' %s%% per lap, 70%% in %s laps.' % (wpl, l70)
@@ -114,18 +120,18 @@ def answer_offline(engine, question):
             return R.say(lang, 'no_data')
         parts = []
         if g.get('ahead') is not None:
-            parts.append(('Před tebou %s' if cs else 'Gap ahead %s') %
+            parts.append(('Gap ahead %s' if cs else 'Gap ahead %s') %
                          R.fmt_delta(g['ahead'], lang))
             if g.get('ahead_trend') is not None:
                 tr = g['ahead_trend']
-                parts.append((('stahuješ %s/kolo' if tr < 0 else 'ujíždí %s/kolo') if cs else
+                parts.append((('stahuješ %s/lap' if tr < 0 else 'ujíždí %s/lap') if cs else
                               ('closing %s/lap' if tr < 0 else 'losing %s/lap')) %
                              R.fmt_delta(tr, lang))
         if g.get('behind') is not None:
-            parts.append(('za tebou %s' if cs else 'behind %s') % R.fmt_delta(g['behind'], lang))
+            parts.append(('gap behind %s' if cs else 'gap behind %s') % R.fmt_delta(g['behind'], lang))
             if g.get('behind_trend') is not None:
                 tr = g['behind_trend']
-                parts.append((('dojíždí tě %s/kolo' if tr < 0 else 'ztrácí %s/kolo') if cs else
+                parts.append((('dojíždí tě %s/lap' if tr < 0 else 'ztrácí %s/lap') if cs else
                               ('closing %s/lap' if tr < 0 else 'dropping %s/lap')) %
                              R.fmt_delta(tr, lang))
         return (', '.join(parts) + '.') if parts else R.say(lang, 'no_data')
@@ -133,7 +139,7 @@ def answer_offline(engine, question):
         cs_list = [c for c in snap['corners'] if c.get('avg_loss') is not None and c['avg_loss'] >= 20]
         if not cs_list:
             if any(c.get('avg_loss') is not None for c in snap['corners']):
-                return ('Ve všech zatáčkách jsi do dvou setin od reference. Dobrá práce.' if cs else
+                return ('Ve všech turns jsi do 0,02 s od reference. Dobrá práce.' if cs else
                         'Within two hundredths of the reference in every corner. Good job.')
             return R.say(lang, 'no_data')
         cs_list.sort(key=lambda c: -c['avg_loss'])
@@ -149,7 +155,7 @@ def answer_offline(engine, question):
         t = snap.get('target')
         if not t:
             return R.say(lang, 'no_data')
-        msg = (('Cíl pro AI %d: %s (%s).' if cs else 'Target for AI %d: %s (%s).') %
+        msg = (('Target pro AI %d: %s (%s).' if cs else 'Target for AI %d: %s (%s).') %
                (t['ai'], R.fmt_lap(t['lap_ms']), t['src']))
         if t.get('match_ai') is not None:
             msg += ' ' + R.say(lang, 'match', ai=t['match_ai'])
@@ -161,9 +167,9 @@ def answer_offline(engine, question):
     last = laps[-1]
     msg = R.say(lang, 'lap', time=R.fmt_lap(last['time']))
     if snap.get('best'):
-        msg += (' Nejlepší %s.' if cs else ' Best %s.') % R.fmt_lap(snap['best']['time'])
+        msg += ' Session best %s.' % R.fmt_lap(snap['best']['time'])
     if snap.get('theoretical_best'):
-        msg += (' Ideální kolo %s.' if cs else ' Ideal lap %s.') % R.fmt_lap(snap['theoretical_best'])
+        msg += ' Theoretical best %s.' % R.fmt_lap(snap['theoretical_best'])
     return msg
 
 

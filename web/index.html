@@ -16,11 +16,11 @@
 <body>
 <header id="top">
   <span id="conn" class="dot"></span>
-  <span id="track">Čekám na data ze hry…</span>
+  <span id="track">Čekám na telemetrii ze hry…</span>
   <span id="stype" class="muted"></span>
   <span id="ai" class="chip"></span>
   <span id="weather" class="muted"></span>
-  <button id="radioBtn" class="radio-off" title="Zapnout hlas">🔇 Rádio</button>
+  <button id="radioBtn" class="radio-off" title="Zapnout hlas">🔇 Radio</button>
 </header>
 <div id="warning" class="warning hidden"></div>
 
@@ -29,14 +29,14 @@
   <section id="tab-live" class="tab active">
     <div class="grid-live">
       <div class="card big">
-        <div class="row between"><span class="label">Kolo <b id="lapNum">-</b></span>
+        <div class="row between"><span class="label">Lap <b id="lapNum">-</b></span>
           <span class="label">P<b id="pos">-</b></span></div>
         <div id="lapTime" class="huge mono">-:--.---</div>
         <div class="row between">
           <div><div class="label">Delta</div><div id="delta" class="xl mono">±0.00</div></div>
-          <div class="right"><div class="label">Odhad kola</div><div id="predicted" class="lg mono">-</div></div>
+          <div class="right"><div class="label">Predicted lap</div><div id="predicted" class="lg mono">-</div></div>
         </div>
-        <div id="invalid" class="badge red hidden">NEPLATNÉ KOLO</div>
+        <div id="invalid" class="badge red hidden">LAP INVALID</div>
         <div class="sectors">
           <div class="sector" id="sec1"><span>S1</span><b class="mono">-</b><i class="mono"></i></div>
           <div class="sector" id="sec2"><span>S2</span><b class="mono">-</b><i class="mono"></i></div>
@@ -51,19 +51,19 @@
       <div class="card">
         <div class="label">Reference</div>
         <div class="row between"><span id="refName">–</span><b id="refTime" class="mono">–</b></div>
-        <div class="label mt">Cíl podle obtížnosti</div>
+        <div class="label mt">Target (AI difficulty)</div>
         <div class="row between"><span id="tgtName">–</span><b id="tgtTime" class="mono">–</b></div>
         <div class="muted small" id="tgtSrc"></div>
-        <div class="row between mt"><span>Nejlepší kolo session</span><b id="bestTime" class="mono">–</b></div>
-        <div class="row between"><span>Osobní rekord</span><b id="pbTime" class="mono">–</b></div>
-        <div class="row between"><span>Ideální kolo</span><b id="theoTime" class="mono purple">–</b></div>
-        <div class="row between"><span>Tempo odpovídá AI</span><b id="matchAi" class="mono">–</b></div>
+        <div class="row between mt"><span>Session best</span><b id="bestTime" class="mono">–</b></div>
+        <div class="row between"><span>Personal best</span><b id="pbTime" class="mono">–</b></div>
+        <div class="row between"><span>Theoretical best</span><b id="theoTime" class="mono purple">–</b></div>
+        <div class="row between"><span>Pace = AI difficulty</span><b id="matchAi" class="mono">–</b></div>
       </div>
       <div class="card map-card">
         <canvas id="map"></canvas>
       </div>
       <div class="card radio-card">
-        <div class="label">Rádio</div>
+        <div class="label">Team radio</div>
         <div id="radioLog"></div>
       </div>
     </div>
@@ -72,19 +72,19 @@
   <!-- CORNERS -->
   <section id="tab-corners" class="tab">
     <div class="card">
-      <div class="row between"><div class="label">Ztráta v zatáčkách vs. <b id="cRef">reference</b></div>
+      <div class="row between"><div class="label">Time loss per turn vs. <b id="cRef">reference</b></div>
         <span class="muted small" id="cLap"></span></div>
       <table class="tbl" id="cornerTable">
-        <thead><tr><th>Zatáčka</th><th>Poslední</th><th>Ø 5 kol</th><th>Min. rychlost</th>
-          <th>Brzda</th><th>Plný plyn</th><th>Rada</th></tr></thead>
+        <thead><tr><th>Turn</th><th>Last lap</th><th>Avg 5 laps</th><th>Min speed</th>
+          <th>Braking point</th><th>Full throttle</th><th>Coaching</th></tr></thead>
         <tbody></tbody>
       </table>
-      <p class="muted small">Zatáčky jsou číslované automaticky podle pořadí na trati (Z1, Z2 …). Ztráta je čas v úseku brzdění → vrchol → výjezd → rovinka. Kladné číslo = ztráta.</p>
+      <p class="muted small">Turns jsou číslované automaticky podle pořadí na trati (T1, T2 …). Time loss = úsek braking → apex → exit → straight. Kladné číslo = ztráta.</p>
     </div>
     <div class="card">
-      <div class="label">Rychlost, plyn a brzda: poslední kolo vs. reference</div>
+      <div class="label">Speed, throttle &amp; brake: last lap vs. reference</div>
       <canvas id="chart" height="420"></canvas>
-      <div class="legend"><span class="lg-you">tvoje kolo</span><span class="lg-ref">reference</span><span class="lg-delta">delta</span></div>
+      <div class="legend"><span class="lg-you">your lap</span><span class="lg-ref">reference</span><span class="lg-delta">delta</span></div>
     </div>
   </section>
 
@@ -92,12 +92,12 @@
   <section id="tab-laps" class="tab">
     <div class="card">
       <table class="tbl" id="lapTable">
-        <thead><tr><th>Kolo</th><th>Čas</th><th>S1</th><th>S2</th><th>S3</th><th>Δ ref</th><th>Gumy</th><th></th></tr></thead>
+        <thead><tr><th>Lap</th><th>Lap time</th><th>S1</th><th>S2</th><th>S3</th><th>Delta</th><th>Tyres</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
     <div class="card">
-      <div class="label">Historie na této trati (všechny session)</div>
+      <div class="label">Lap time history na této trati (všechny session)</div>
       <canvas id="histChart" height="220"></canvas>
     </div>
   </section>
@@ -106,19 +106,19 @@
   <section id="tab-race" class="tab">
     <div class="grid-race">
       <div class="card">
-        <div class="label">Palivo</div>
+        <div class="label">Fuel delta</div>
         <div id="fuelBig" class="xl mono">–</div>
         <div id="fuelInfo" class="small"></div>
       </div>
       <div class="card">
-        <div class="label">Mezery</div>
-        <div class="row between"><span>Před tebou</span><b id="gapAhead" class="lg mono">–</b></div>
+        <div class="label">Gaps</div>
+        <div class="row between"><span>Gap ahead</span><b id="gapAhead" class="lg mono">–</b></div>
         <div id="gapAheadTrend" class="small"></div>
-        <div class="row between mt"><span>Za tebou</span><b id="gapBehind" class="lg mono">–</b></div>
+        <div class="row between mt"><span>Gap behind</span><b id="gapBehind" class="lg mono">–</b></div>
         <div id="gapBehindTrend" class="small"></div>
       </div>
       <div class="card">
-        <div class="label">Pneumatiky <span id="tyreCompound"></span></div>
+        <div class="label">Tyres <span id="tyreCompound"></span></div>
         <div class="car-tyres">
           <div class="tyre" id="tFL"></div><div class="tyre" id="tFR"></div>
           <div class="tyre" id="tRL"></div><div class="tyre" id="tRR"></div>
@@ -126,7 +126,7 @@
         <div id="tyreInfo" class="small"></div>
       </div>
       <div class="card">
-        <div class="label">Tempo</div>
+        <div class="label">Pace</div>
         <div id="paceInfo"></div>
       </div>
     </div>
@@ -137,11 +137,11 @@
     <div class="card chat-card">
       <div id="chat"></div>
       <div class="quick">
-        <button data-q="Kde nejvíc ztrácím?">Kde ztrácím?</button>
-        <button data-q="Jak jsem na tom s gumami?">Gumy</button>
-        <button data-q="Jak jsem na tom s palivem?">Palivo</button>
-        <button data-q="Jaká je mezera a stahuju nebo mě dojíždí?">Mezery</button>
-        <button data-q="Jaké tempo a jak jsem daleko od cíle pro obtížnost AI?">Tempo / obtížnost</button>
+        <button data-q="Ve kterém turnu ztrácím nejvíc?">Kde ztrácím?</button>
+        <button data-q="Jaký mám tyre wear?">Tyres</button>
+        <button data-q="Jaký je fuel delta?">Fuel</button>
+        <button data-q="Jaký je gap a stahuju, nebo mě dojíždí?">Gaps</button>
+        <button data-q="Jaká je moje pace a kolik chybí na target pro AI difficulty?">Pace / AI difficulty</button>
       </div>
       <form id="askForm" class="row">
         <button type="button" id="micBtn" title="Mluvit">🎙️</button>
@@ -158,19 +158,19 @@
       <label>Jazyk inženýra
         <select id="sLang"><option value="cs">Čeština</option><option value="en">English</option></select></label>
       <label>Úroveň inženýra
-        <select id="sLevel"><option value="1">Nováček: málo hlášení, jednoduché rady</option>
-          <option value="2">Pokročilý: standard</option>
-          <option value="3">Pro: všechny detaily, sektory</option></select></label>
-      <label>Srovnávat s
-        <select id="sRef"><option value="auto">Automaticky</option>
-          <option value="pb">Můj osobní rekord na trati</option>
-          <option value="session_best">Moje nejlepší kolo v session</option>
-          <option value="ai_best">Nejrychlejší AI v session</option>
+        <select id="sLevel"><option value="1">Rookie: málo hlášení, jednoduché rady</option>
+          <option value="2">Advanced: standard</option>
+          <option value="3">Pro: všechny detaily, sector hlášení</option></select></label>
+      <label>Reference
+        <select id="sRef"><option value="auto">Auto</option>
+          <option value="pb">Personal best (trať)</option>
+          <option value="session_best">Session best</option>
+          <option value="ai_best">Fastest AI (session)</option>
           <option value="tt_rival">Time Trial rival</option>
           <option value="tt_pb">Time Trial ghost (PB)</option></select></label>
-      <label>Obtížnost AI pro cílové časy
-        <input id="sAi" type="number" min="0" max="110" placeholder="ze hry (automaticky)"></label>
-      <label class="check"><input id="sVoice" type="checkbox"> Mluvit hlasem</label>
+      <label>AI difficulty pro target lap time
+        <input id="sAi" type="number" min="0" max="110" placeholder="auto (ze hry)"></label>
+      <label class="check"><input id="sVoice" type="checkbox"> Team radio hlasem</label>
       <hr>
       <label>Gemini API klíč (volitelné, zdarma z aistudio.google.com)
         <input id="sKey" type="password" placeholder="nevyplněno = offline odpovědi"></label>
@@ -193,11 +193,11 @@
 
 <nav id="tabs">
   <button data-tab="live" class="active">⏱️<span>Live</span></button>
-  <button data-tab="corners">↪️<span>Zatáčky</span></button>
-  <button data-tab="laps">📋<span>Kola</span></button>
-  <button data-tab="race">⛽<span>Závod</span></button>
-  <button data-tab="eng">🎧<span>Inženýr</span></button>
-  <button data-tab="set">⚙️<span>Nastavení</span></button>
+  <button data-tab="corners">↪️<span>Corners</span></button>
+  <button data-tab="laps">📋<span>Laps</span></button>
+  <button data-tab="race">⛽<span>Race</span></button>
+  <button data-tab="eng">🎧<span>Engineer</span></button>
+  <button data-tab="set">⚙️<span>Settings</span></button>
 </nav>
 <script src="app.js"></script>
 </body>

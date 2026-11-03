@@ -38,7 +38,7 @@ main { padding: 12px 12px 96px; max-width: 1400px; margin: 0 auto; }
 .xl { font-size: clamp(30px, 5vw, 44px); font-weight: 800; }
 .lg { font-size: 24px; font-weight: 700; }
 .badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 13px; margin-top: 6px; }
-.badge.red { background: var(--red); }
+.badge.red { background: var(--red); color: #fff; }
 
 .grid-live { display: grid; grid-template-columns: 1.25fr 1fr; gap: 12px; }
 .grid-live .card { margin: 0; }

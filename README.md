@@ -4,13 +4,14 @@ Závodní inženýr pro **F1 25** (včetně Season Pass 2026). Hra běží na Xb
 Čte UDP telemetrii ze hry a v reálném čase:
 
 - **Tempo**: čas kola, živá delta proti referenci, odhad kola, sektory (fialová/zelená/žlutá)
-- **Zatáčky**: automaticky najde zatáčky a po každém kole řekne, kde ztrácíš a proč
-  (*„V Z4 ztrácíš 0,15 s. Brzdíš o 12 m dřív, na plný plyn o 20 m později.“*)
+- **Corners**: automaticky najde zatáčky (T1, T2 …) a po každém lapu řekne, kde ztrácíš a proč
+  (*„V T4 ztrácíš 0,15 s. Braking point o 12 m dřív, full throttle o 20 m později.“*)
 - **Obtížnost AI**: přečte obtížnost ze hry, spočítá cílový čas a řekne, jaké obtížnosti odpovídá tvoje tempo.
   Z časů AI v tvých kvalifikacích a trénincích se postupně sám kalibruje.
 - **Reference podle výběru**: osobní rekord na trati, nejlepší kolo session, nejrychlejší AI, Time Trial rival
 - **Závod**: palivo, opotřebení a teploty gum, mezera před tebou a za tebou, jestli stahuješ, nebo tě dojíždí
-- **Rádio**: mluví česky nebo anglicky hlasem iOS (zdarma, offline)
+- **Team radio**: mluví česky nebo anglicky hlasem iOS (zdarma, offline). V češtině jsou věty česky,
+  ale F1 terminologie je anglicky (lap, sector, delta, gap, apex, braking point, tyre wear, fuel delta, Soft/Medium/Hard …).
 - **Chat s inženýrem**: rychlá tlačítka nebo vlastní otázka. Bez internetu odpovídá podle pravidel,
   s Gemini klíčem odpovídá přirozeně (všechna čísla počítá aplikace, Gemini je jen formuluje).
 - **Historie**: ukládá osobní rekordy a časy kol, takže vidíš zlepšování na každé trati
@@ -73,15 +74,15 @@ Tip: v Safari → Sdílet → **Přidat na plochu**. Aplikace se pak otevírá n
 
 ## 3) První jízda
 
-1. Na iPadu klepni na **🔇 Rádio**, tím zapneš hlas. iOS vyžaduje klepnutí, než může stránka mluvit.
-2. Odjeď jedno **čisté platné kolo**. Aplikace z něj najde zatáčky (Z1, Z2 …) a nakreslí mapu trati.
-3. Od dalšího kola dostáváš hlášení, kde ztrácíš. Záložka **Zatáčky** má tabulku a graf rychlosti, plynu a brzdy.
+1. Na iPadu klepni na **🔇 Radio**, tím zapneš hlas. iOS vyžaduje klepnutí, než může stránka mluvit.
+2. Odjeď jeden **čistý valid lap**. Aplikace z něj najde zatáčky (T1, T2 …) a nakreslí mapu trati.
+3. Od dalšího lapu dostáváš hlášení, kde ztrácíš. Záložka **Corners** má tabulku a graf speed / throttle / brake.
 
 ## Nastavení
 
-- **Úroveň inženýra**: Nováček (málo hlášení, jedna rada), Pokročilý, Pro (i drobné ztráty a hlášení sektorů)
-- **Srovnávat s**: automaticky / osobní rekord / nejlepší kolo session / nejrychlejší AI / TT rival
-- **Obtížnost AI**: prázdné = vezme se ze hry, nebo zadej vlastní číslo pro cílové časy (např. v Time Trialu)
+- **Úroveň inženýra**: Rookie (málo hlášení, jedna rada), Advanced, Pro (i drobné ztráty a sector hlášení)
+- **Reference**: Auto / Personal best / Session best / Fastest AI / Time Trial rival / Time Trial ghost
+- **AI difficulty**: prázdné = vezme se ze hry, nebo zadej vlastní číslo pro target lap time (např. v Time Trialu)
 - **Gemini API klíč** (volitelné): zdarma na <https://aistudio.google.com/apikey>.
   Pozn.: studentské předplatné Gemini platí pro aplikaci Gemini, API klíč z AI Studia má vlastní free tier.
   Na free tieru může Google data použít ke zlepšování modelů. Posílají se ale jen čísla z telemetrie.
@@ -118,7 +119,7 @@ data/                  tvoje rekordy, kalibrace a nastavení (vzniká samo)
 
 ## Známá omezení (verze 1)
 
-- Zatáčky jsou číslované podle pořadí na trati, ne podle oficiálního číslování.
+- Turns (T1, T2 …) jsou číslované podle pořadí na trati, ne podle oficiálního číslování.
 - Cílové časy pro obtížnost jsou na začátku odhad podle reálných pole position. Zpřesňují se samy,
   jakmile odjedeš kvalifikaci nebo trénink s AI na dané trati.
 - Formát UDP 2026 zatím není podporovaný (nastav ve hře 2025).

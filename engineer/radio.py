@@ -1,8 +1,8 @@
-"""Texty týmového rádia v češtině a angličtině.
+"""Texty týmového rádia. Česky = české věty s anglickou F1 terminologií.
 
 Úroveň inženýra (verbosity):
-  1 = Nováček – málo hlášení, jedna jednoduchá rada
-  2 = Pokročilý – standard
+  1 = Rookie – málo hlášení, jedna jednoduchá rada
+  2 = Advanced – standard
   3 = Pro – víc detailů, i drobné ztráty
 """
 
@@ -14,32 +14,32 @@ LEVELS = {
 
 T = {
     'cs': {
-        'lap': 'Kolo {time}.',
-        'lap_delta_slow': 'O {d} pomaleji než reference.',
-        'lap_delta_fast': 'O {d} rychleji než reference!',
-        'pb': 'Nejrychlejší kolo! {time}.',
-        'invalid': 'Kolo neplatné.',
-        'target_gap_slow': 'Na cíl pro AI {ai} chybí {d}.',
-        'target_gap_fast': 'Jsi {d} pod cílem pro AI {ai}. Zkus přidat obtížnost.',
-        'match': 'Tvoje tempo odpovídá zhruba AI {ai}.',
+        'lap': 'Lap {time}.',
+        'lap_delta_slow': 'Delta +{d} na referenci.',
+        'lap_delta_fast': 'Delta -{d}, rychlejší než reference!',
+        'pb': 'Personal best! {time}.',
+        'invalid': 'Lap invalid.',
+        'target_gap_slow': 'Na target pro AI {ai} chybí {d}.',
+        'target_gap_fast': 'Jsi {d} pod targetem pro AI {ai}. Zkus zvýšit AI difficulty.',
+        'match': 'Tvoje pace odpovídá zhruba AI {ai}.',
         'corner_loss': 'V {name} ztrácíš {d}.',
-        'tip_brake_early': 'brzdíš o {0} m dřív',
-        'tip_overdrive': 'brzdíš o {0} m později a přestřelíš, ve vrcholu o {1} km/h pomaleji',
-        'tip_min_speed': 'vrcholem neseš o {0} km/h méně',
-        'tip_throttle_late': 'na plný plyn o {0} m později',
-        'tip_exit': 'výjezd o {0} km/h pomalejší',
-        'tip_gear': 've vrcholu máš {0}. rychlost, reference {1}',
-        'sector': 'Sektor {n}: {d}.',
-        'fuel_low': 'Palivo: {d} kola. Šetři – lift and coast před brzděním.',
-        'fuel_ok': 'Palivo v pořádku, rezerva {d} kola.',
-        'tyre_wear': 'Opotřebení gum {w} %, nejvíc {wheel}.',
-        'gap_closing': 'Stahuješ auto před sebou o {r} za kolo, mezera {g}.',
-        'gap_losing': 'Auto před tebou ujíždí o {r} za kolo, mezera {g}.',
-        'gap_behind_closing': 'Auto za tebou dojíždí o {r} za kolo, mezera {g}.',
-        'gap_behind_dropping': 'Auto za tebou ztrácí {r} za kolo, mezera {g}.',
-        'catch_in': 'Dojedeš ho zhruba za {n} kol.',
+        'tip_brake_early': 'braking point o {0} m dřív',
+        'tip_overdrive': 'braking point o {0} m později a přestřelíš apex, minimum speed o {1} km/h nižší',
+        'tip_min_speed': 'minimum speed v apexu o {0} km/h nižší',
+        'tip_throttle_late': 'full throttle o {0} m později',
+        'tip_exit': 'exit speed o {0} km/h nižší',
+        'tip_gear': 'gear {0}, reference gear {1}',
+        'sector': 'Sector {n}: {d}.',
+        'fuel_low': 'Fuel delta {d} laps. Potřebuješ lift and coast.',
+        'fuel_ok': 'Fuel v pořádku, fuel delta {d} laps.',
+        'tyre_wear': 'Tyre wear {w} %, nejvíc {wheel}.',
+        'gap_closing': 'Gap ahead {g}, stahuješ {r} za lap.',
+        'gap_losing': 'Gap ahead {g}, ztrácíš {r} za lap.',
+        'gap_behind_closing': 'Gap behind {g}, dojíždí tě {r} za lap.',
+        'gap_behind_dropping': 'Gap behind {g}, ztrácí {r} za lap.',
+        'catch_in': 'Dojedeš ho zhruba za {n} laps.',
         'no_data': 'Zatím nemám dost dat.',
-        'session_start': 'Rádio zapnuto. {track}, {session}. Obtížnost AI {ai}.',
+        'session_start': 'Radio check. {track}, {session}. AI difficulty {ai}.',
     },
     'en': {
         'lap': 'Lap {time}.',
@@ -72,7 +72,7 @@ T = {
 }
 
 WHEEL_NAMES = {
-    'cs': {'RL': 'zadní levá', 'RR': 'zadní pravá', 'FL': 'přední levá', 'FR': 'přední pravá'},
+    'cs': {'RL': 'rear left', 'RR': 'rear right', 'FL': 'front left', 'FR': 'front right'},
     'en': {'RL': 'rear left', 'RR': 'rear right', 'FL': 'front left', 'FR': 'front right'},
 }
 

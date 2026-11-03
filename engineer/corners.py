@@ -53,7 +53,7 @@ def detect_corners(trace, min_drop_kmh=12.0, merge_m=120.0):
         s = start0 if k == 0 else bounds[k - 1]
         e = bounds[k] if k < len(bounds) else n - 1
         corners.append({
-            'id': k + 1, 'name': 'Z%d' % (k + 1),
+            'id': k + 1, 'name': 'T%d' % (k + 1),
             'start': dist[s], 'apex': dist[apex], 'end': dist[e],
             'x': trace.cols['x'][apex], 'z': trace.cols['z'][apex],
             'min_speed': round(sp[apex]),

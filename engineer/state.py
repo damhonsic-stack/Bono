@@ -12,11 +12,11 @@ from .race import RaceTracker
 from . import radio as R
 
 REF_NAMES = {
-    'cs': {'session_best': 'nejlepší kolo session', 'pb': 'osobní rekord',
-           'ai_best': 'nejrychlejší AI', 'tt_rival': 'TT rival', 'tt_pb': 'TT ghost (PB)',
+    'cs': {'session_best': 'Session best', 'pb': 'Personal best',
+           'ai_best': 'Fastest AI', 'tt_rival': 'Time Trial rival', 'tt_pb': 'Time Trial ghost (PB)',
            None: 'žádná'},
-    'en': {'session_best': 'session best', 'pb': 'personal best',
-           'ai_best': 'fastest AI', 'tt_rival': 'TT rival', 'tt_pb': 'TT PB ghost',
+    'en': {'session_best': 'Session best', 'pb': 'Personal best',
+           'ai_best': 'Fastest AI', 'tt_rival': 'Time Trial rival', 'tt_pb': 'Time Trial ghost (PB)',
            None: 'none'},
 }
 
@@ -83,6 +83,8 @@ class Engine:
         self.track_id = track_id
         self.track_data = self.storage.load_track(track_id) or {}
         self.corners = self.track_data.get('corners', [])
+        for c in self.corners:
+            c['name'] = 'T%d' % c['id']
         self.track_version += 1
 
     def _pb_key(self):
@@ -200,7 +202,7 @@ class Engine:
         if first and not self.announced_session:
             self.announced_session = True
             self.say(R.say(self.lang, 'session_start',
-                           track=TRACKS.get(s['track_id'], 'trať %d' % s['track_id']),
+                           track=TRACKS.get(s['track_id'], 'Track %d' % s['track_id']),
                            session=SESSION_TYPES.get(s['session_type'], '?'),
                            ai=self.difficulty()), prio=0)
 
@@ -533,7 +535,7 @@ class Engine:
                 'has_gemini': bool(self.settings.get('gemini_key')),
                 'session': {
                     'track_id': self.track_id,
-                    'track': TRACKS.get(self.track_id, 'trať %s' % self.track_id)
+                    'track': TRACKS.get(self.track_id, 'Track %s' % self.track_id)
                     if self.track_id is not None else None,
                     'type': SESSION_TYPES.get(s.get('session_type'), None),
                     'type_id': s.get('session_type'),
