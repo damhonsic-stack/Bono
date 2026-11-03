@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="F1 Inženýr">
+<meta name="theme-color" content="#0b0d12">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>F1 Inženýr</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="top">
+  <span id="conn" class="dot"></span>
+  <span id="track">Čekám na data ze hry…</span>
+  <span id="stype" class="muted"></span>
+  <span id="ai" class="chip"></span>
+  <span id="weather" class="muted"></span>
+  <button id="radioBtn" class="radio-off" title="Zapnout hlas">🔇 Rádio</button>
+</header>
+<div id="warning" class="warning hidden"></div>
+
+<main>
+  <!-- LIVE -->
+  <section id="tab-live" class="tab active">
+    <div class="grid-live">
+      <div class="card big">
+        <div class="row between"><span class="label">Kolo <b id="lapNum">-</b></span>
+          <span class="label">P<b id="pos">-</b></span></div>
+        <div id="lapTime" class="huge mono">-:--.---</div>
+        <div class="row between">
+          <div><div class="label">Delta</div><div id="delta" class="xl mono">±0.00</div></div>
+          <div class="right"><div class="label">Odhad kola</div><div id="predicted" class="lg mono">-</div></div>
+        </div>
+        <div id="invalid" class="badge red hidden">NEPLATNÉ KOLO</div>
+        <div class="sectors">
+          <div class="sector" id="sec1"><span>S1</span><b class="mono">-</b><i class="mono"></i></div>
+          <div class="sector" id="sec2"><span>S2</span><b class="mono">-</b><i class="mono"></i></div>
+          <div class="sector" id="sec3"><span>S3</span><b class="mono">-</b><i class="mono"></i></div>
+        </div>
+        <div class="pedals">
+          <div class="pedal"><div id="thr" class="fill green"></div></div>
+          <div class="pedal"><div id="brk" class="fill red"></div></div>
+          <div class="speed"><b id="speed" class="mono">0</b> km/h · <b id="gear">N</b></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="label">Reference</div>
+        <div class="row between"><span id="refName">–</span><b id="refTime" class="mono">–</b></div>
+        <div class="label mt">Cíl podle obtížnosti</div>
+        <div class="row between"><span id="tgtName">–</span><b id="tgtTime" class="mono">–</b></div>
+        <div class="muted small" id="tgtSrc"></div>
+        <div class="row between mt"><span>Nejlepší kolo session</span><b id="bestTime" class="mono">–</b></div>
+        <div class="row between"><span>Osobní rekord</span><b id="pbTime" class="mono">–</b></div>
+        <div class="row between"><span>Ideální kolo</span><b id="theoTime" class="mono purple">–</b></div>
+        <div class="row between"><span>Tempo odpovídá AI</span><b id="matchAi" class="mono">–</b></div>
+      </div>
+      <div class="card map-card">
+        <canvas id="map"></canvas>
+      </div>
+      <div class="card radio-card">
+        <div class="label">Rádio</div>
+        <div id="radioLog"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CORNERS -->
+  <section id="tab-corners" class="tab">
+    <div class="card">
+      <div class="row between"><div class="label">Ztráta v zatáčkách vs. <b id="cRef">reference</b></div>
+        <span class="muted small" id="cLap"></span></div>
+      <table class="tbl" id="cornerTable">
+        <thead><tr><th>Zatáčka</th><th>Poslední</th><th>Ø 5 kol</th><th>Min. rychlost</th>
+          <th>Brzda</th><th>Plný plyn</th><th>Rada</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="muted small">Zatáčky jsou číslované automaticky podle pořadí na trati (Z1, Z2 …). Ztráta je čas v úseku brzdění → vrchol → výjezd → rovinka. Kladné číslo = ztráta.</p>
+    </div>
+    <div class="card">
+      <div class="label">Rychlost, plyn a brzda: poslední kolo vs. reference</div>
+      <canvas id="chart" height="420"></canvas>
+      <div class="legend"><span class="lg-you">tvoje kolo</span><span class="lg-ref">reference</span><span class="lg-delta">delta</span></div>
+    </div>
+  </section>
+
+  <!-- LAPS -->
+  <section id="tab-laps" class="tab">
+    <div class="card">
+      <table class="tbl" id="lapTable">
+        <thead><tr><th>Kolo</th><th>Čas</th><th>S1</th><th>S2</th><th>S3</th><th>Δ ref</th><th>Gumy</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <div class="label">Historie na této trati (všechny session)</div>
+      <canvas id="histChart" height="220"></canvas>
+    </div>
+  </section>
+
+  <!-- RACE -->
+  <section id="tab-race" class="tab">
+    <div class="grid-race">
+      <div class="card">
+        <div class="label">Palivo</div>
+        <div id="fuelBig" class="xl mono">–</div>
+        <div id="fuelInfo" class="small"></div>
+      </div>
+      <div class="card">
+        <div class="label">Mezery</div>
+        <div class="row between"><span>Před tebou</span><b id="gapAhead" class="lg mono">–</b></div>
+        <div id="gapAheadTrend" class="small"></div>
+        <div class="row between mt"><span>Za tebou</span><b id="gapBehind" class="lg mono">–</b></div>
+        <div id="gapBehindTrend" class="small"></div>
+      </div>
+      <div class="card">
+        <div class="label">Pneumatiky <span id="tyreCompound"></span></div>
+        <div class="car-tyres">
+          <div class="tyre" id="tFL"></div><div class="tyre" id="tFR"></div>
+          <div class="tyre" id="tRL"></div><div class="tyre" id="tRR"></div>
+        </div>
+        <div id="tyreInfo" class="small"></div>
+      </div>
+      <div class="card">
+        <div class="label">Tempo</div>
+        <div id="paceInfo"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ENGINEER -->
+  <section id="tab-eng" class="tab">
+    <div class="card chat-card">
+      <div id="chat"></div>
+      <div class="quick">
+        <button data-q="Kde nejvíc ztrácím?">Kde ztrácím?</button>
+        <button data-q="Jak jsem na tom s gumami?">Gumy</button>
+        <button data-q="Jak jsem na tom s palivem?">Palivo</button>
+        <button data-q="Jaká je mezera a stahuju nebo mě dojíždí?">Mezery</button>
+        <button data-q="Jaké tempo a jak jsem daleko od cíle pro obtížnost AI?">Tempo / obtížnost</button>
+      </div>
+      <form id="askForm" class="row">
+        <button type="button" id="micBtn" title="Mluvit">🎙️</button>
+        <input id="askInput" placeholder="Zeptej se inženýra… (můžeš diktovat klávesnicí)" autocomplete="off">
+        <button type="submit">Poslat</button>
+      </form>
+      <div class="muted small" id="aiMode"></div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="tab-set" class="tab">
+    <div class="card settings">
+      <label>Jazyk inženýra
+        <select id="sLang"><option value="cs">Čeština</option><option value="en">English</option></select></label>
+      <label>Úroveň inženýra
+        <select id="sLevel"><option value="1">Nováček: málo hlášení, jednoduché rady</option>
+          <option value="2">Pokročilý: standard</option>
+          <option value="3">Pro: všechny detaily, sektory</option></select></label>
+      <label>Srovnávat s
+        <select id="sRef"><option value="auto">Automaticky</option>
+          <option value="pb">Můj osobní rekord na trati</option>
+          <option value="session_best">Moje nejlepší kolo v session</option>
+          <option value="ai_best">Nejrychlejší AI v session</option>
+          <option value="tt_rival">Time Trial rival</option>
+          <option value="tt_pb">Time Trial ghost (PB)</option></select></label>
+      <label>Obtížnost AI pro cílové časy
+        <input id="sAi" type="number" min="0" max="110" placeholder="ze hry (automaticky)"></label>
+      <label class="check"><input id="sVoice" type="checkbox"> Mluvit hlasem</label>
+      <hr>
+      <label>Gemini API klíč (volitelné, zdarma z aistudio.google.com)
+        <input id="sKey" type="password" placeholder="nevyplněno = offline odpovědi"></label>
+      <label>Gemini model
+        <input id="sModel" placeholder="gemini-2.5-flash"></label>
+      <div class="row">
+        <button id="saveBtn">Uložit</button>
+        <button id="resetCorners" class="ghost">Znovu detekovat zatáčky</button>
+      </div>
+      <hr>
+      <details>
+        <summary>Jak nastavit hru</summary>
+        <p>F1 25 → Nastavení → Telemetrie:<br>
+        UDP Telemetry: <b>On</b> · UDP Broadcast Mode: <b>Off</b> · UDP IP Address: <b>IP zařízení, kde běží server</b> ·
+        UDP Port: <b>20777</b> · UDP Send Rate: <b>20 Hz</b> · UDP Format: <b>2025</b> · Your Telemetry: <b>Public</b></p>
+      </details>
+    </div>
+  </section>
+</main>
+
+<nav id="tabs">
+  <button data-tab="live" class="active">⏱️<span>Live</span></button>
+  <button data-tab="corners">↪️<span>Zatáčky</span></button>
+  <button data-tab="laps">📋<span>Kola</span></button>
+  <button data-tab="race">⛽<span>Závod</span></button>
+  <button data-tab="eng">🎧<span>Inženýr</span></button>
+  <button data-tab="set">⚙️<span>Nastavení</span></button>
+</nav>
+<script src="app.js"></script>
+</body>
+</html>
