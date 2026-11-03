@@ -86,11 +86,11 @@ tlačítkům (např. D-pad nebo kliknutí páčkou):
 ## 2A) Server přímo na iPadu (a-Shell, zdarma)
 
 1. Z App Store nainstaluj **a-Shell** (zdarma).
-2. V a-Shell napiš (stačí zkopírovat):
+2. V a-Shell napiš **každý řádek zvlášť** a po každém Enter (a-Shell nemá `unzip` a neumí `&&`):
    ```
    cd ~/Documents
    curl -L -o bono.zip https://codeload.github.com/damhonsic-stack/Bono/zip/refs/heads/f1-ai-engineer
-   unzip -o bono.zip
+   python3 -m zipfile -e bono.zip .
    cd Bono-f1-ai-engineer
    python3 server.py
    ```
@@ -98,6 +98,7 @@ tlačítkům (např. D-pad nebo kliknutí páčkou):
 4. Server vypíše IP adresu. Tu zadej v Xboxu (UDP IP Address).
 5. Dej a-Shell a Safari **vedle sebe** a v Safari otevři **http://localhost:8080**.
    iOS uspí a-Shell, když není vidět, proto ho nech na obrazovce (stačí úzký pruh).
+   Kdyby server nevypsal adresu `192.168.x.x`, najdeš ji v Nastavení → Wi‑Fi → (i) → IP adresa.
    V Nastavení iPadu → Displej a jas → Automatický zámek nastav **Nikdy**.
 
 Tip: v Safari → Sdílet → **Přidat na plochu**. Aplikace se pak otevírá na celou obrazovku.
