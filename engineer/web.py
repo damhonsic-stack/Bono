@@ -258,7 +258,9 @@ def run(engine, web_root, http_port, udp_port):
             notes.append('%s (%s)' % (x, tag))
         print(' Nalezené adresy: ' + ', '.join(notes))
     print('                UDP Format = 2026 (se Season Passem, jinak 2025), Send Rate = 20 Hz')
-    print(' V Safari na tomto iPadu otevři:  http://localhost:%d' % http_port)
+    if _is_lan(ip):
+        print(' Na iPadu / iPhonu / jiném zařízení otevři v Safari:  http://%s:%d' % (ip, http_port))
+    print(' Na zařízení, kde běží server (např. iPad s a-Shell):  http://localhost:%d' % http_port)
     print(' Server zastavíš: Ctrl+C (nebo zavři a-Shell)')
     print('=' * 60)
     while True:
