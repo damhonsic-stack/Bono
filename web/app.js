@@ -88,6 +88,8 @@ function render() {
   if (s.listen_seq !== listenSeq) { listenSeq = s.listen_seq; Voice.listenNow(); }
   renderRegs(s);
   renderStrip(s);
+  $('muteBtn').textContent = s.settings.voice === false ? '🔊 Unmute' : '🔇 Mute';
+  $('pad').querySelector('.talk').classList.toggle('live', Voice.mode === 'command' && Voice.on);
   if (document.querySelector('#tab-strat.active')) renderStrategy(s);
   if (document.querySelector('#tab-debrief.active')) renderSetup(s);
 }
@@ -780,15 +782,15 @@ function setMic(state, detail) {
 let wakeLock = null;
 let listenSeq = null;
 async function startBono() {
+  if (radioOn) return;
   radioOn = true;
+  // iOS: hlas, zvuk i mikrofon se musí odemknout SYNCHRONNĚ v reakci na klepnutí (bez await předtím)
+  const name = (S && S.settings.engineer_name) || 'Bono';
+  speakIOS(lang() === 'cs' ? `${name} tady. Slyšíme se.` : `${name} here. Radio check, loud and clear.`);
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
   } catch (_) { /* bez zvuku */ }
-  // iOS: hlas musí poprvé zaznít v reakci na klepnutí
-  const name = (S && S.settings.engineer_name) || 'Bono';
-  // přímo (ne přes frontu), aby iOS odemklo hlas v rámci klepnutí
-  speakIOS(lang() === 'cs' ? `${name} tady. Slyšíme se.` : `${name} here. Radio check, loud and clear.`);
   Voice.start();
   try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (_) { /* nepodstatné */ }
   $('bonoBtn').textContent = '⏹ Stop';
@@ -834,6 +836,27 @@ async function ask(q, viaVoice) {
     addBubble(d.text || d.error, 'eng');
   } catch (e) { addBubble('No connection to the server.', 'eng'); }
 }
+// ------------------------------------------------------------------ ovládací panel
+document.querySelectorAll('#pad button').forEach((b) => {
+  b.onclick = async () => {
+    const act = b.dataset.act;
+    if (act === 'talk') {
+      if (!radioOn) { await startBono(); }
+      if (Voice.on) Voice.listenNow();
+      else $('tabs').querySelector('[data-tab=eng]').click();   // bez mikrofonu → psaní
+      return;
+    }
+    let action = act;
+    if (act === 'mute') action = S && S.settings.voice === false ? 'unmute' : 'mute';
+    if (!radioOn) await startBono();   // ať odpověď uslyšíš
+    b.classList.add('on'); setTimeout(() => b.classList.remove('on'), 400);
+    try {
+      await fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }) });
+    } catch (_) { /* bez spojení */ }
+  };
+});
+
 $('askForm').onsubmit = (e) => { e.preventDefault(); ask($('askInput').value.trim()); };
 document.querySelectorAll('.quick button').forEach((b) => { b.onclick = () => ask(b.dataset.q); });
 $('micBtn').onclick = () => {

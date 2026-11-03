@@ -86,19 +86,36 @@ tlačítkům (např. D-pad nebo kliknutí páčkou):
 ## 2A) Server přímo na iPadu (a-Shell, zdarma)
 
 1. Z App Store nainstaluj **a-Shell** (zdarma).
-2. Na GitHubu otevři tento repozitář → **Code → Download ZIP**. V aplikaci **Soubory** přesuň ZIP do složky
-   **a-Shell** a klepnutím ho rozbal.
-3. V a-Shell napiš:
+2. V a-Shell napiš (stačí zkopírovat):
    ```
-   cd bono-main        # nebo jak se rozbalená složka jmenuje (ukáže ji příkaz ls)
+   cd ~/Documents
+   curl -L -o bono.zip https://codeload.github.com/damhonsic-stack/Bono/zip/refs/heads/f1-ai-engineer
+   unzip -o bono.zip
+   cd Bono-f1-ai-engineer
    python3 server.py
    ```
+3. iPad se zeptá na přístup k místní síti. Dej **Povolit**.
 4. Server vypíše IP adresu. Tu zadej v Xboxu (UDP IP Address).
-5. Otevři **Split View**: vlevo a-Shell, vpravo Safari s adresou **http://localhost:8080**.
+5. Dej a-Shell a Safari **vedle sebe** a v Safari otevři **http://localhost:8080**.
    iOS uspí a-Shell, když není vidět, proto ho nech na obrazovce (stačí úzký pruh).
    V Nastavení iPadu → Displej a jas → Automatický zámek nastav **Nikdy**.
 
 Tip: v Safari → Sdílet → **Přidat na plochu**. Aplikace se pak otevírá na celou obrazovku.
+
+### Aktualizace na novou verzi
+
+V a-Shell (když server běží, nejdřív ho zastav: Ctrl+C):
+```
+cd ~/Documents/Bono-f1-ai-engineer
+python3 update.py
+python3 server.py
+```
+`update.py` stáhne nejnovější kód z GitHubu a **nesahá na složku `data/`**, takže Gemini klíč,
+rekordy, kalibrace i debriefy zůstanou.
+
+> Máš starou verzi bez `update.py`? Jednou spusť ve složce Bona:
+> `curl -L -o update.py https://raw.githubusercontent.com/damhonsic-stack/Bono/f1-ai-engineer/update.py`
+> a pak `python3 update.py`.
 
 ## 2B) Server na PC / notebooku (doporučeno pro iPhone)
 
@@ -121,6 +138,10 @@ Tip: v Safari → Sdílet → **Přidat na plochu**. Aplikace se pak otevírá n
    - „**Bono**“ → pípne a 8 s čeká na otázku (v liště 🔴 Bono listening…)
    - nebo zmáčkni **UDP Action 1** na ovladači a rovnou mluv
    - Bono navíc sám hlásí lap time, kde ztrácíš, gapy, overtake mode, battery, fuel a tyres
+
+**Všechno jde ovládat jen z iPadu.** Tlačítka na ovladači jsou volitelná. Dole na obrazovce je
+panel velkých tlačítek: 🎙️ **Talk** (Bono poslouchá), **Status, Strategy, Gaps, Tyres, Fuel,
+Where?** (kde ztrácím), **Damage, Repeat, Mute**. Odpověď Bono řekne nahlas.
 
 Hlasové příkazy: *status report · strategy / when do I box · tyres · fuel · gap ahead / gap behind ·
 where am I losing time · battery / overtake · damage · weather · setup advice · debrief ·

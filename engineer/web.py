@@ -88,6 +88,15 @@ def make_handler(engine, web_root):
             if path == '/api/reset_corners':
                 engine.reset_corners()
                 return self._json({'ok': True})
+            if path == '/api/action':
+                action = data.get('action', '')
+                if action not in ('status', 'strategy', 'gaps', 'gap', 'tyres', 'fuel', 'damage',
+                                  'repeat', 'mute', 'unmute', 'corners', 'ers', 'weather', 'setup',
+                                  'debrief', 'listen'):
+                    return self._json({'error': 'unknown action'}, 400)
+                with engine.lock:
+                    engine.button_action('gap' if action == 'gaps' else action)
+                return self._json({'ok': True})
             if path == '/api/debrief':
                 with engine.lock:
                     ok = engine.start_debrief(announce=True)

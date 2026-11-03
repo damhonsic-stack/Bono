@@ -40,7 +40,15 @@ button:active { transform: scale(.97); }
 button.ghost { background: transparent; }
 .radio-on { background: var(--green); color: #04130a; border-color: var(--green); font-weight: 700; }
 
-main { padding: 12px 12px 96px; max-width: 1400px; margin: 0 auto; }
+main { padding: 12px 12px 170px; max-width: 1400px; margin: 0 auto; }
+.pad { position: fixed; left: 0; right: 0; bottom: calc(58px + env(safe-area-inset-bottom)); z-index: 9;
+  display: flex; gap: 6px; padding: 8px 10px; background: rgba(11, 13, 18, .96); border-top: 1px solid var(--line);
+  overflow-x: auto; }
+.pad button { flex: 1 0 auto; min-width: 84px; min-height: 58px; font-size: 17px; font-weight: 700; border-radius: 12px; }
+.pad button.talk { background: var(--accent); border-color: var(--accent); min-width: 120px; }
+.pad button.talk.live { animation: pulse 1s infinite; }
+.pad button.on { background: #4c0d0d; }
+.pad button:active { background: #33405a; }
 .tab { display: none; } .tab.active { display: block; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; margin-bottom: 12px; }
 .label { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
