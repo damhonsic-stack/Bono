@@ -31,6 +31,10 @@ Závodní inženýr pro **F1 25** (včetně Season Pass 2026). Hra běží na Xb
   na rychlém kole, provisional pozice, zbývající čas
 - **Debrief** po session (záložka Debrief): Gemini shrne výsledek, konzistenci, srovnání s rekordem
   a top 3 věci na příště; ukládá se historie debriefů
+- **Post-race recap** (záložka Debrief): mapa trati obarvená po úsecích zatáček ve třech režimech
+  (kde ztrácím pravidelně, kde jsem nahnal v best lapu, kde jsem ztratil ve worst lapu), tabulka
+  sektorů (best, worst, průměr, ideál) a zatáček T1… s radou, co bylo ve worst lapu jinak.
+  Ukládá se s každým debriefem.
 - **Setup advice**: z úhlů skluzu kol pozná understeer/oversteer v entry/mid/exit a v pomalých,
   středních a rychlých zatáčkách, k tomu zamykání kol, protáčení a teploty gum. Navrhne konkrétní
   změnu, třeba „front ARB 8 → 7“

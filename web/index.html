@@ -186,6 +186,35 @@
 
   <!-- DEBRIEF & SETUP -->
   <section id="tab-debrief" class="tab">
+    <div class="card" id="recapCard">
+      <div class="row between wrap">
+        <div class="label">Post-race recap <span id="recapSrc" class="muted"></span></div>
+        <div class="seg" id="recapModes">
+          <button data-mode="avg" class="active">Kde ztrácím</button>
+          <button data-mode="best">Best lap: kde jsem nahnal</button>
+          <button data-mode="worst">Worst lap: kde jsem ztratil</button>
+          <button data-mode="live" class="ghost">↻ Aktuální session</button>
+        </div>
+      </div>
+      <div class="recap-grid">
+        <canvas id="recapMap"></canvas>
+        <div>
+          <div id="recapHigh" class="recap-high">Recap se ukáže po pár čistých lapech.</div>
+          <div class="legend-bar"><span>méně ztrácím</span><i></i><span>víc ztrácím</span></div>
+        </div>
+      </div>
+      <div class="label mt">Sektory</div>
+      <table class="tbl small" id="recapSectors">
+        <thead><tr><th></th><th>Lap</th><th>S1</th><th>S2</th><th>S3</th><th>Čas</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="label mt">Zatáčky</div>
+      <table class="tbl small" id="recapTurns">
+        <thead><tr><th>Turn</th><th>Ø ztráta</th><th>Best lap vs Ø</th><th>Worst lap vs Ø</th><th>Co bylo ve worst lapu jinak</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="muted small">Ø ztráta = průměrný průjezd úseku proti tvému nejlepšímu průjezdu v session. Best / Worst lap = rozdíl proti průměru (zelená = rychlejší, červená = pomalejší). Úsek zatáčky = brzdění → apex → výjezd → rovinka.</p>
+    </div>
     <div class="card">
       <div class="row between"><div class="label">Debrief</div>
         <button id="debriefBtn">📝 Generate debrief now</button></div>

@@ -39,7 +39,7 @@ document.querySelectorAll('nav#tabs button').forEach((b) => {
     if (b.dataset.tab === 'corners') loadCompare(true);
     if (b.dataset.tab === 'laps') loadHistory();
     if (b.dataset.tab === 'live') drawMap();
-    if (b.dataset.tab === 'debrief') loadDebriefs();
+    if (b.dataset.tab === 'debrief') { loadDebriefs(); if (!recapData) loadRecap(); }
   };
 });
 
@@ -306,16 +306,138 @@ function renderSetup(s) {
     : '<span class="muted">Zatím bez doporučení. Odjeď pár čistých lapů.</span>';
 }
 let debriefsLoaded = 0;
+let debriefList = [];
+function showDebrief(d) {
+  $('debriefText').textContent = d.text;
+  if (d.summary && d.summary.recap) { recapData = d.summary.recap; recapSource = `uložený debrief ${new Date(d.ts * 1000).toLocaleString('cs-CZ')}`; renderRecap(); }
+}
 function loadDebriefs() {
   fetch('/api/debriefs').then((r) => r.json()).then((list) => {
-    if (!list.length) return;
+    debriefList = list;
+    if (!list.length) { loadRecap(); return; }
     const d = list[0];
-    $('debriefText').textContent = d.text;
+    showDebrief(d);
     $('debriefOld').innerHTML = `${new Date(d.ts * 1000).toLocaleString('cs-CZ')} · ${esc(d.track)} ${esc(d.session)} · ${d.source}` +
-      (list.length > 1 ? '<br>Starší: ' + list.slice(1, 6).map((x) => `${esc(x.track)} ${new Date(x.ts * 1000).toLocaleDateString('cs-CZ')}`).join(' · ') : '');
+      (list.length > 1 ? '<br>Starší: ' + list.slice(1, 8).map((x, i) =>
+        `<span class="debrief-item" data-i="${i + 1}">${esc(x.track)} ${esc(x.session)} ${new Date(x.ts * 1000).toLocaleDateString('cs-CZ')}</span>`).join(' · ') : '');
+    $('debriefOld').querySelectorAll('.debrief-item').forEach((el) => {
+      el.onclick = () => showDebrief(debriefList[+el.dataset.i]);
+    });
     debriefsLoaded = list.length;
   });
 }
+
+// ------------------------------------------------------------------ post-race recap
+let recapData = null, recapMode = 'avg', recapSource = '';
+function loadRecap() {
+  fetch('/api/recap').then((r) => r.json()).then((rc) => { recapData = rc; recapSource = 'aktuální session'; renderRecap(); });
+}
+document.querySelectorAll('#recapModes button').forEach((b) => {
+  b.onclick = () => {
+    if (b.dataset.mode === 'live') { loadRecap(); return; }
+    recapMode = b.dataset.mode;
+    document.querySelectorAll('#recapModes button').forEach((x) => x.classList.toggle('active', x === b));
+    renderRecap();
+  };
+});
+const RECAP_KEY = { avg: 'avg_loss', best: 'best_vs_avg', worst: 'worst_vs_avg' };
+function lossColor(t) {   // t: -1 (zisk) … 0 … 1 (ztráta)
+  if (t <= 0) { const a = Math.min(1, -t); return `rgb(${Math.round(34 + (90 - 34) * (1 - a))},${Math.round(197)},${Math.round(94 + 60 * (1 - a))})`; }
+  t = Math.min(1, t);
+  if (t < 0.5) { const k = t / 0.5; return `rgb(${Math.round(34 + (250 - 34) * k)},${Math.round(197 + (204 - 197) * k)},${Math.round(94 - 73 * k)})`; }
+  const k = (t - 0.5) / 0.5; return `rgb(${Math.round(250 - 11 * k)},${Math.round(204 - 136 * k)},${Math.round(21 + 47 * k)})`;
+}
+function renderRecap() {
+  const rc = recapData;
+  $('recapSrc').textContent = recapSource ? `· ${recapSource}` : '';
+  drawRecapMap();
+  if (!rc) return;
+  // highlights
+  const lines = (rc.text || []).map((t) => `<div>${esc(t)}</div>`);
+  if (rc.ok) lines.push(`<div>Best lap <b>${fmtLap(rc.best_lap.time)}</b> (lap ${rc.best_lap.lap}) · worst <b>${fmtLap(rc.worst_lap.time)}</b> (lap ${rc.worst_lap.lap}) · ideální kolo z nejlepších úseků <b class="purple">${fmtLap(rc.ideal_time)}</b></div>`);
+  $('recapHigh').innerHTML = lines.join('') || esc(rc.reason || 'Zatím málo dat.');
+  // sektory
+  const sec = rc.sectors;
+  if (sec) {
+    const rows = [['Best lap', sec.best], ['Worst lap', sec.worst], ['Průměr', sec.avg], ['Ideál (nejlepší sektory)', sec.ideal]];
+    $('recapSectors').querySelector('tbody').innerHTML = rows.map(([name, r]) => `<tr><td><b>${name}</b></td><td>${r.lap || '–'}</td>` +
+      r.s.map((v, i) => {
+        const d = v - sec.ideal.s[i];
+        const c = d === 0 ? 'cool' : (d > 150 ? 'hot' : '');
+        return `<td class="num ${c}">${fmtSec(v)}${d ? ` <span class="${d > 0 ? 'loss' : 'gain'}">${fmtDelta(d)}</span>` : ''}</td>`;
+      }).join('') + `<td class="num"><b>${fmtLap(r.time)}</b></td></tr>`).join('');
+  }
+  // zatáčky
+  const turns = rc.corners || [];
+  const worstIds = new Set((rc.highlights ? rc.highlights.most_loss : []).map((x) => x.turn));
+  const bestIds = new Set((rc.highlights ? rc.highlights.least_loss : []).map((x) => x.turn));
+  $('recapTurns').querySelector('tbody').innerHTML = turns.map((t) => `<tr>
+    <td><b>${t.name}</b></td>
+    <td class="num ${worstIds.has(t.name) ? 'hot' : bestIds.has(t.name) ? 'cool' : ''}">${fmtDelta(t.avg_loss, 3)}</td>
+    <td class="num ${t.best_vs_avg < 0 ? 'gain' : 'loss'}">${fmtDelta(t.best_vs_avg, 3)}</td>
+    <td class="num ${t.worst_vs_avg > 0 ? 'loss' : 'gain'}">${fmtDelta(t.worst_vs_avg, 3)}</td>
+    <td>${esc((t.worst_tips || []).join('; ') || '–')}</td></tr>`).join('') ||
+    '<tr><td colspan="5" class="muted">Potřebuju aspoň 2 čistá kola s analýzou zatáček.</td></tr>';
+}
+function drawRecapMap() {
+  const c = $('recapMap');
+  if (!c || !c.clientWidth) return;
+  const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight || 360;
+  c.width = w * dpr; c.height = h * dpr;
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  const rc = recapData;
+  const o = rc && rc.outline;
+  if (!o || !o.x || !o.x.length) {
+    ctx.fillStyle = '#8b93a7'; ctx.font = '15px -apple-system'; ctx.fillText('Mapa se ukáže po prvním čistém kole.', 16, 36); return;
+  }
+  const minX = Math.min(...o.x), maxX = Math.max(...o.x), minZ = Math.min(...o.z), maxZ = Math.max(...o.z);
+  const pad = 34, sc = Math.min((w - 2 * pad) / (maxX - minX || 1), (h - 2 * pad) / (maxZ - minZ || 1));
+  const ox = (w - (maxX - minX) * sc) / 2, oz = (h - (maxZ - minZ) * sc) / 2;
+  const P = (x, z) => [ox + (x - minX) * sc, oz + (z - minZ) * sc];
+  const turns = rc.corners || [];
+  const key = RECAP_KEY[recapMode];
+  const vals = turns.map((t) => t[key]);
+  const scale = Math.max(30, ...vals.map(Math.abs));
+  const turnAt = (d) => turns.find((t) => d >= t.start && d <= t.end);
+  // podklad
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.lineWidth = 12; ctx.strokeStyle = '#232a38';
+  ctx.beginPath(); o.x.forEach((x, i) => { const [px, pz] = P(x, o.z[i]); i ? ctx.lineTo(px, pz) : ctx.moveTo(px, pz); }); ctx.closePath(); ctx.stroke();
+  // úseky obarvené podle ztráty
+  ctx.lineWidth = 7;
+  for (let i = 0; i < o.x.length - 1; i++) {
+    const t = turnAt(o.dist[i]);
+    if (!t) continue;
+    let v = t[key] / scale;
+    if (recapMode === 'avg') v = Math.max(0, v);
+    ctx.strokeStyle = lossColor(v);
+    const [a, b] = P(o.x[i], o.z[i]), [c2, d] = P(o.x[i + 1], o.z[i + 1]);
+    ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c2, d); ctx.stroke();
+  }
+  // hranice sektorů
+  (rc.sector_starts || []).forEach((sd, k) => {
+    if (sd === null || sd === undefined) return;
+    let j = 0; while (j < o.dist.length - 1 && o.dist[j] < sd) j++;
+    const [px, pz] = P(o.x[j], o.z[j]);
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(px, pz, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.font = 'bold 11px -apple-system'; ctx.fillStyle = '#cbd5e1';
+    ctx.fillText(k === 0 ? 'START / S1' : 'S' + (k + 1), px + 8, pz + 16);
+  });
+  // popisky zatáček s hodnotou
+  turns.forEach((t) => {
+    const [px, pz] = P(t.x, t.z);
+    const v = t[key];
+    const label = `${t.name} ${fmtDelta(v)}`;
+    ctx.font = 'bold 12px -apple-system';
+    const tw = ctx.measureText(label).width + 10;
+    ctx.fillStyle = 'rgba(11,13,18,.85)'; ctx.fillRect(px - tw / 2, pz - 24, tw, 18);
+    ctx.fillStyle = lossColor(recapMode === 'avg' ? Math.max(0, v / scale) : v / scale);
+    ctx.textAlign = 'center'; ctx.fillText(label, px, pz - 11); ctx.textAlign = 'left';
+  });
+}
+window.addEventListener('resize', () => { if (document.querySelector('#tab-debrief.active')) drawRecapMap(); });
+
 $('debriefBtn').onclick = async () => {
   $('debriefBtn').textContent = '⏳ Generating…';
   await fetch('/api/debrief', { method: 'POST' });

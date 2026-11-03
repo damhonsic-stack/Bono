@@ -51,6 +51,10 @@ def make_handler(engine, web_root):
                 return self._json(engine.compare_traces() or {})
             if path == '/api/history':
                 return self._json(engine.storage.load_history(engine.track_id))
+            if path == '/api/recap':
+                from .recap import build_recap
+                with engine.lock:
+                    return self._json(build_recap(engine))
             if path == '/api/debriefs':
                 return self._json(engine.storage.load_debriefs())
             if path == '/api/tts':

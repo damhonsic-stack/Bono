@@ -309,3 +309,34 @@ class EngineIntegrationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RecapTests(unittest.TestCase):
+    def test_recap_turns_sectors_and_highlights(self):
+        from engineer.recap import build_recap, for_llm
+        e, _ = race_log(laps=10, pit_lap=None)
+        e.settings['lang'] = 'cs'
+        with e.lock:
+            rc = build_recap(e)
+        self.assertTrue(rc['ok'])
+        self.assertEqual(len(rc['corners']), len(SIM.CORNERS))
+        self.assertTrue(rc['outline']['x'])
+        # úseky zatáček pokrývají kolo → součet průměrů ≈ průměrný čas kola
+        self.assertGreater(rc['best_lap']['lap'], 1)              # 1. kolo závodu vynecháno
+        self.assertEqual(rc['sectors']['best']['lap'], rc['best_lap']['lap'])
+        self.assertLessEqual(rc['ideal_time'], rc['best_lap']['time'])
+        h = rc['highlights']
+        self.assertTrue(all(x['ms'] > 0 for x in h['most_loss']))
+        self.assertTrue(all(x['ms'] < 0 for x in h['best_gains']))
+        self.assertTrue(all(x['ms'] > 0 for x in h['worst_losses']))
+        self.assertTrue(rc['text'][0].startswith('Nejvíc pravidelně ztrácíš'))
+        self.assertNotIn('outline', for_llm(rc))
+
+    def test_recap_saved_with_debrief(self):
+        e, _ = race_log(laps=8)
+        with e.lock:
+            summary = D.build_summary(e)
+        entry = D.make_debrief(e, summary, 'en', key=None)
+        saved = e.storage.load_debriefs()[0]
+        self.assertTrue(saved['summary']['recap']['ok'])
+        self.assertIn('Losing most consistently', entry['text'])

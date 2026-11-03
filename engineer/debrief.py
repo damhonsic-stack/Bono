@@ -12,13 +12,17 @@ PROMPT = {
 Structure: 2-3 sentences summary (result, best lap, consistency, comparison with previous best on
 this track if given). Then "Top 3 focus points:" as a numbered list 1-3, each one concrete and
 actionable (corner T-number + what to change, strategy, tyres, setup). Max 120 words.
-If a value is null (e.g. previous_best_on_track), do not mention it at all. Never invent facts.""",
+If a value is null (e.g. previous_best_on_track), do not mention it at all. Never invent facts.
+recap: per turn avg_loss_ms (vs own best pass), best_vs_avg_ms (negative = gained in best lap),
+worst_vs_avg_ms (positive = lost in worst lap), worst_lap_tips. Use it for the focus points.""",
     'cs': """Jsi {name}, závodní inženýr F1. Napiš krátký debrief po session pro svého jezdce (hra F1 25).
 Používej JEN data z JSONu. Čistý text, bez markdownu kromě číslovaného seznamu. F1 pojmy anglicky.
 Struktura: 2–3 věty shrnutí (výsledek, best lap, konzistence, srovnání s dřívějším rekordem na trati).
 Pak "Top 3 věci na příště:" jako číslovaný seznam 1–3, každá konkrétní (T-číslo zatáčky + co změnit,
 strategie, gumy, setup). Max 120 slov.
-Když je hodnota null (např. previous_best_on_track), vůbec ji nezmiňuj. Nic si nevymýšlej.""",
+Když je hodnota null (např. previous_best_on_track), vůbec ji nezmiňuj. Nic si nevymýšlej.
+recap: pro každý turn avg_loss_ms (ztráta proti vlastnímu nejlepšímu průjezdu), best_vs_avg_ms (záporné
+= v best lapu nahnal), worst_vs_avg_ms (kladné = ve worst lapu ztratil), worst_lap_tips. Použij to.""",
 }
 
 
@@ -62,6 +66,8 @@ def build_summary(engine):
         'setup_advice': engine.setup.advice()[:3],
     }
     out['incidents'].pop('log', None)
+    from .recap import build_recap
+    out['recap'] = build_recap(engine)
     return out
 
 
@@ -79,7 +85,9 @@ def offline_text(summary, lang='en'):
         lines.append(('Oproti dřívějšímu rekordu %+.3f s.' if cs else 'Versus your previous best: %+.3f s.')
                      % (-d))
     if summary.get('consistency_stdev_s') is not None:
-        lines.append(('Konzistence ±%.2f s.' if cs else 'Consistency ±%.2f s.') % summary['consistency_stdev_s'])
+        c = '%.2f' % summary['consistency_stdev_s']
+        lines.append(('Konzistence ±%s s.' % c.replace('.', ',')) if cs else ('Consistency ±%s s.' % c))
+    lines.extend((summary.get('recap') or {}).get('text') or [])
     lines.append('Top 3 věci na příště:' if cs else 'Top 3 focus points:')
     n = 1
     for c in summary['worst_turns'][:3]:
@@ -99,11 +107,13 @@ def offline_text(summary, lang='en'):
 def make_debrief(engine, summary, lang='en', key=None, model=None, name='Bono'):
     """Vytvoří a uloží debrief z hotového souhrnu. Gemini se volá bez zámku enginu."""
     from . import llm
+    from .recap import for_llm
     text, src = None, 'offline'
+    payload = dict(summary, recap=for_llm(summary.get('recap')))
     if key:
         try:
             text, _m = llm.ask_with_fallback(
-                key, model or llm.DEFAULT_MODEL, lang, 'Write the debrief now.', summary, name=name,
+                key, model or llm.DEFAULT_MODEL, lang, 'Write the debrief now.', payload, name=name,
                 system=PROMPT.get(lang, PROMPT['en']).replace('{name}', name), max_tokens=3000,
                 timeout=25)
             src = 'gemini'
