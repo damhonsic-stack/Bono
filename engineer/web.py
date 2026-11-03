@@ -182,9 +182,9 @@ def run(engine, web_root, http_port, udp_port):
     server.daemon_threads = True
     ip = local_ip()
     print('=' * 56)
-    print(' F1 25 AI inženýr běží')
+    print(' Bono – F1 25 AI race engineer běží')
     print(' Ve hře nastav: UDP IP Address = %s, UDP Port = %d' % (ip, udp_port))
-    print('               UDP Format = 2025, UDP Send Rate = 20 Hz')
+    print('               UDP Format = 2026 (se Season Passem, jinak 2025), Send Rate = 20 Hz')
     print(' Na iPadu/iPhonu otevři v Safari:  http://%s:%d' % (ip, http_port))
     print(' (na stejném iPadu stačí http://localhost:%d)' % http_port)
     print('=' * 56)
