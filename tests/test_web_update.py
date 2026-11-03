@@ -72,6 +72,53 @@ class ActionApiTests(unittest.TestCase):
         self.assertIn('id="pad"', html)
 
 
+class NetworkTests(unittest.TestCase):
+    def test_udp_loop_recovers_after_bad_socket(self):
+        import socket as so
+        pkt = SIM.pack_session(7, 0.0, 0, 18, 3, 90)
+        made = []
+        stop = threading.Event()
+
+        class Bad:
+            def recvfrom(self, n):
+                raise OSError(9, 'Bad file descriptor')
+
+            def close(self):
+                pass
+
+        class Good:
+            def __init__(self):
+                self.n = 0
+
+            def recvfrom(self, n):
+                self.n += 1
+                if self.n > 1:
+                    stop.set()
+                    raise so.timeout()
+                return pkt, None
+
+            def close(self):
+                pass
+
+        def factory(port):
+            made.append(port)
+            return Bad() if len(made) == 1 else Good()
+        e = Engine(Storage(tempfile.mkdtemp()))
+        t = threading.Thread(target=web.udp_loop, args=(e, 1, factory, stop), daemon=True)
+        t.start()
+        t.join(10)
+        self.assertEqual(len(made), 2)              # socket se znovu vytvořil
+        self.assertEqual(e.session.get('ai_difficulty'), 90)   # a paket prošel
+
+    def test_prefers_wifi_over_cellular(self):
+        orig = web.candidate_ips
+        web.candidate_ips = lambda: ['100.66.133.50', '192.168.1.23']
+        try:
+            self.assertEqual(web.local_ip(), '192.168.1.23')
+        finally:
+            web.candidate_ips = orig
+
+
 class UpdateTests(unittest.TestCase):
     def test_update_overwrites_code_but_keeps_data(self):
         tmp = tempfile.mkdtemp()

@@ -148,7 +148,7 @@ def make_handler(engine, web_root):
     return Handler
 
 
-def udp_loop(engine, port):
+def _udp_socket(port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
@@ -156,36 +156,125 @@ def udp_loop(engine, port):
     except OSError:
         pass
     sock.bind(('0.0.0.0', port))
-    while True:
-        data, _ = sock.recvfrom(4096)
+    sock.settimeout(5.0)
+    return sock
+
+
+def udp_loop(engine, port, make_socket=_udp_socket, stop=None):
+    """Příjem telemetrie. Když iOS socket zavře (aplikace na chvíli v pozadí),
+    vytvoří se nový a příjem pokračuje."""
+    sock = None
+    warned = False
+    while not (stop and stop.is_set()):
+        try:
+            if sock is None:
+                sock = make_socket(port)
+                if warned:
+                    print('UDP příjem obnoven.')
+                    warned = False
+            data, _ = sock.recvfrom(4096)
+        except socket.timeout:
+            continue
+        except OSError as e:
+            if not warned:
+                print('UDP příjem přerušen (%s), obnovuji…' % e)
+                warned = True
+            try:
+                sock and sock.close()
+            except OSError:
+                pass
+            sock = None
+            time.sleep(1.0)
+            continue
         try:
             engine.handle(data)
         except Exception as e:  # noqa: BLE001 - server nesmí spadnout kvůli jednomu paketu
             print('Chyba paketu:', repr(e))
 
 
-def local_ip():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+def _is_lan(ip):
+    a = [int(x) for x in ip.split('.')]
+    return a[0] == 10 or (a[0] == 172 and 16 <= a[1] <= 31) or (a[0] == 192 and a[1] == 168)
+
+
+def _is_cgnat(ip):
+    a = [int(x) for x in ip.split('.')]
+    return a[0] == 100 and 64 <= a[1] <= 127      # mobilní data / VPN (např. Tailscale)
+
+
+def candidate_ips():
+    """Všechny IPv4 adresy zařízení, které se dají zjistit bez dalších knihoven."""
+    ips = []
+    probes = ['192.168.0.1', '192.168.1.1', '192.168.100.1', '10.0.0.1', '10.0.0.138',
+              '172.16.0.1', '10.255.255.255', '8.8.8.8']
+    for target in probes:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect((target, 1))
+            ip = s.getsockname()[0]
+            if ip not in ips and not ip.startswith('127.') and ip != '0.0.0.0':
+                ips.append(ip)
+        except OSError:
+            pass
+        finally:
+            s.close()
     try:
-        s.connect(('10.255.255.255', 1))
-        return s.getsockname()[0]
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if ip not in ips and not ip.startswith('127.'):
+                ips.append(ip)
     except OSError:
-        return '127.0.0.1'
-    finally:
-        s.close()
+        pass
+    return ips
+
+
+def local_ip():
+    """Adresa pro Xbox: přednostně domácí Wi‑Fi (192.168.x.x, 10.x, 172.16–31.x)."""
+    ips = candidate_ips()
+    lan = [ip for ip in ips if _is_lan(ip)]
+    if lan:
+        return lan[0]
+    other = [ip for ip in ips if not _is_cgnat(ip)]
+    return (other or ips or ['127.0.0.1'])[0]
 
 
 def run(engine, web_root, http_port, udp_port):
     t = threading.Thread(target=udp_loop, args=(engine, udp_port), daemon=True)
     t.start()
-    server = ThreadingHTTPServer(('0.0.0.0', http_port), make_handler(engine, web_root))
-    server.daemon_threads = True
+    ips = candidate_ips()
     ip = local_ip()
-    print('=' * 56)
+    print('=' * 60)
     print(' Bono – F1 25 AI race engineer běží')
-    print(' Ve hře nastav: UDP IP Address = %s, UDP Port = %d' % (ip, udp_port))
-    print('               UDP Format = 2026 (se Season Passem, jinak 2025), Send Rate = 20 Hz')
-    print(' Na iPadu/iPhonu otevři v Safari:  http://%s:%d' % (ip, http_port))
-    print(' (na stejném iPadu stačí http://localhost:%d)' % http_port)
-    print('=' * 56)
-    server.serve_forever()
+    if _is_lan(ip):
+        print(' Ve hře nastav: UDP IP Address = %s, UDP Port = %d' % (ip, udp_port))
+    else:
+        print(' !! Nenašel jsem adresu domácí Wi‑Fi (192.168.x.x / 10.x.x.x).')
+        print(' !! Zjisti ji: Nastavení → Wi‑Fi → (i) u tvé sítě → IP adresa.')
+        print(' !! Vypni VPN a zkontroluj, že je iPad na stejné Wi‑Fi jako Xbox.')
+    if len(ips) > 1:
+        notes = []
+        for x in ips:
+            tag = 'Wi‑Fi' if _is_lan(x) else ('mobilní data / VPN – NEpoužívat' if _is_cgnat(x) else '?')
+            notes.append('%s (%s)' % (x, tag))
+        print(' Nalezené adresy: ' + ', '.join(notes))
+    print('                UDP Format = 2026 (se Season Passem, jinak 2025), Send Rate = 20 Hz')
+    print(' V Safari na tomto iPadu otevři:  http://localhost:%d' % http_port)
+    print(' Server zastavíš: Ctrl+C (nebo zavři a-Shell)')
+    print('=' * 60)
+    while True:
+        server = None
+        try:
+            server = ThreadingHTTPServer(('0.0.0.0', http_port), make_handler(engine, web_root))
+            server.daemon_threads = True
+            server.serve_forever()
+        except KeyboardInterrupt:
+            raise
+        except OSError as e:
+            print('HTTP server přerušen (%s), obnovuji…' % e)
+            time.sleep(1.0)
+        finally:
+            if server:
+                try:
+                    server.server_close()
+                except OSError:
+                    pass
