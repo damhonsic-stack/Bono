@@ -10,6 +10,7 @@ from .corners import detect_corners, compare_lap, theoretical_best
 from .targets import Targets, split_sectors
 from .race import RaceTracker
 from . import radio as R
+from .regs import Regs26
 
 REF_NAMES = {
     'cs': {'session_best': 'Session best', 'pb': 'Personal best',
@@ -45,6 +46,8 @@ class Engine:
         self.last_packet_at = 0
         self.format_warning = None
         self.track_version = 0
+        self.listen_seq = 0          # požadavek na poslech (tlačítko na ovladači)
+        self.prev_buttons = 0
         self._new_session(None)
 
     # ------------------------------------------------------------------ session
@@ -78,6 +81,8 @@ class Engine:
         self.prev_sector = None
         self.announced_session = False
         self.calibrated = False
+        self.regs = Regs26()
+        self.packet_format = None
 
     def _load_track(self, track_id):
         self.track_id = track_id
@@ -101,7 +106,7 @@ class Engine:
     # ------------------------------------------------------------------ helpers
     @property
     def lang(self):
-        return self.settings.get('lang', 'cs')
+        return self.settings.get('lang', 'en')
 
     @property
     def level(self):
@@ -162,21 +167,32 @@ class Engine:
             if now - self._rate_t >= 1.0:
                 self.packet_rate = self._rate_n / (now - self._rate_t)
                 self._rate_t, self._rate_n = now, 0
-            if hdr['format'] != 2025:
+            if hdr['format'] not in P.LAYOUTS:
                 self.format_warning = (
-                    'Hra posílá formát %d. Nastav ve hře UDP Format = 2025.' % hdr['format'])
-                if hdr['format'] < 2025:
-                    return
+                    'Hra posílá UDP formát %d. Nastav ve hře UDP Format = 2026 '
+                    '(se Season Passem) nebo 2025.' % hdr['format'])
+                return
+            self.format_warning = None
+            self.packet_format = hdr['format']
             if payload is None:
                 return
-            if hdr['session_uid'] != self.session_uid and hdr['session_uid'] != 0:
-                self._end_session()
-                self._new_session(hdr['session_uid'])
+            uid = hdr['session_uid']
+            if uid != self.session_uid and uid != 0:
+                if pid in (P.SESSION, P.LAP_DATA):
+                    self._end_session()
+                    self._new_session(uid)
+                elif pid == P.EVENT and payload.get('code') == 'BUTN':
+                    self._on_buttons(payload['buttons'])
+                    return
+                else:
+                    return  # paket z jiné session (např. zpoždění) – ignoruj
             self.player = hdr['player'] if hdr['player'] < P.NUM_CARS else 0
             if pid == P.LAP_DATA:
                 self._on_lap_data(payload)
             elif pid == P.CAR_TELEMETRY:
                 self.tel = payload['cars']
+            elif pid == P.CAR_TELEMETRY_2:
+                self._on_telemetry2(payload['cars'])
             elif pid == P.MOTION:
                 self.motion = payload['cars']
             elif pid == P.CAR_STATUS:
@@ -201,14 +217,63 @@ class Engine:
             self._load_track(s['track_id'])
         if first and not self.announced_session:
             self.announced_session = True
-            self.say(R.say(self.lang, 'session_start',
+            self.say(R.say(self.lang, 'session_start', name=self.settings.get('engineer_name', 'Bono'),
                            track=TRACKS.get(s['track_id'], 'Track %d' % s['track_id']),
                            session=SESSION_TYPES.get(s['session_type'], '?'),
                            ai=self.difficulty()), prio=0)
 
     def _on_event(self, ev):
-        if ev['code'] == 'SEND':
+        code = ev['code']
+        if code == 'SEND':
             self._end_session()
+        elif code == 'BUTN':
+            self._on_buttons(ev['buttons'])
+        else:
+            self.regs.on_event(code)
+            self._flush_regs_events()
+
+    def _on_buttons(self, status):
+        pressed = status & ~self.prev_buttons
+        self.prev_buttons = status
+        mapping = self.settings.get('buttons') or {}
+        for n, bit in P.UDP_ACTION_BITS.items():
+            if pressed & bit:
+                action = mapping.get(str(n))
+                if action:
+                    self.button_action(action)
+
+    def button_action(self, action):
+        """Akce z tlačítka na ovladači (UDP Action) nebo hlasového příkazu."""
+        from . import llm
+        if action == 'listen':
+            self.listen_seq += 1
+            return
+        text = llm.run_command(self, action)
+        if text:
+            cmd = action in ('mute', 'unmute', 'radio_check', 'repeat')
+            self.say(text, prio=3 if cmd else 2)
+
+    def _on_telemetry2(self, cars):
+        me = self.lap[self.player] if self.player < len(self.lap) else None
+        self.regs.on_telemetry2(cars, self.player, me)
+        idx, gap = self._car_behind()
+        self.regs.check_car_behind(idx, gap)
+        self._flush_regs_events()
+
+    def _flush_regs_events(self):
+        st = self.session.get('session_type')
+        for key, data in self.regs.pop_events():
+            if key in ('ot_available', 'ot_missed', 'ot_behind') and st not in RACE:
+                continue
+            if key == 'ot_missed' and self.level < 2:
+                continue
+            kw = {}
+            if key == 'ot_behind':
+                kw['g'] = R.fmt_delta(data['gap'], self.lang)
+            if key == 'ot_available':
+                me = self.lap[self.player]
+                kw['g'] = R.fmt_delta(me['delta_front_ms'], self.lang) if me else '?'
+            self.say(R.say(self.lang, 'regs_' + key, **kw), prio=1)
 
     def _on_history(self, h):
         car = h['car']
@@ -324,6 +389,8 @@ class Engine:
         if status:
             lap.meta['compound'] = status['visual_compound']
             lap.meta['tyre_age'] = status['tyre_age']
+        regs_stats = self.regs.on_lap_complete(lap.lap_num, status)
+        lap.meta.update(regs_stats)
         ref_before, _ = self.reference()
         msgs = []
         pb = self._stored_pb()
@@ -392,19 +459,25 @@ class Engine:
                 d = lap.lap_ms - tgt['lap_ms']
                 key = 'target_gap_slow' if d > 0 else 'target_gap_fast'
                 msgs.append(R.say(lang, key, ai=tgt['ai'], d=R.fmt_delta(d, lang)))
+        sp = regs_stats.get('straight_pct')
+        if sp is not None and sp < 90 and regs_stats.get('aero_avail_m', 0) > 300:
+            msgs.append(R.say(lang, 'regs_straight_low', p=sp))
         if st in RACE:
             msgs.extend(self._race_messages(lap.lap_num))
         for m in msgs:
             self.say(m)
 
-    def _gap_behind(self):
-        me = self.lap[self.player]
+    def _car_behind(self):
+        me = self.lap[self.player] if self.player < len(self.lap) else None
         if not me:
-            return None
+            return None, None
         for i, l in enumerate(self.lap):
             if l and l['position'] == me['position'] + 1 and l['result_status'] == 2:
-                return l['delta_front_ms']
-        return None
+                return i, l['delta_front_ms']
+        return None, None
+
+    def _gap_behind(self):
+        return self._car_behind()[1]
 
     def _race_messages(self, lap_num):
         lang = self.lang
@@ -430,6 +503,11 @@ class Engine:
             if fd < 0:
                 out.append(R.say(lang, 'fuel_low', d=('%.1f' % fd).replace('.', ',')
                                  if lang == 'cs' else '%.1f' % fd))
+        status = self.status[self.player]
+        if self.regs.active and status and lap_num % 2 == 0 and \
+                status['ers_store'] < 0.15 * 4.0e6:
+            out.append(R.say(lang, 'regs_battery_low',
+                             p=round(100 * status['ers_store'] / 4.0e6)))
         tyres = self._tyres()
         if tyres and tyres.get('max_wear', 0) >= 50 and lap_num % 3 == 0:
             w = tyres['wear']
@@ -563,6 +641,10 @@ class Engine:
                 'race': race,
                 'messages': self.messages[-20:],
                 'track_version': self.track_version,
+                'regs': self.regs.snapshot(self.status[self.player] if self.player <
+                                           len(self.status) else None, s),
+                'format': self.packet_format,
+                'listen_seq': self.listen_seq,
             }
 
     def track_info(self):
@@ -600,7 +682,7 @@ class Engine:
     def update_settings(self, new):
         with self.lock:
             allowed = {'lang', 'level', 'reference', 'difficulty_override', 'voice',
-                       'gemini_key', 'gemini_model'}
+                       'gemini_key', 'gemini_model', 'engineer_name', 'wake_word', 'buttons'}
             for k, v in new.items():
                 if k in allowed:
                     if k == 'gemini_key' and v == '***':
@@ -649,5 +731,6 @@ class Engine:
                            'delta_ms': l.get('delta')} for l in snap['laps'][-6:]],
             'corners_worst_first': corners[:8],
             'race': snap['race'],
+            'regs_2026': snap['regs'],
             'recent_radio': [m['text'] for m in snap['messages'][-5:]],
         }

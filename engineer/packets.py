@@ -1,14 +1,17 @@
-"""Parser UDP telemetrie F1 25 (formát 2025).
+"""Parser UDP telemetrie F1 25 – formát 2025 i 2026 (2026 Season Pack).
 
 Pouze standardní knihovna (struct), aby to běželo i v a-Shell na iPadu.
-Rozložení struktur odpovídá oficiální specifikaci EA F1 25 UDP.
+Rozložení struktur odpovídá oficiálním specifikacím EA:
+  - "Data Output from F1 25" (formát 2025, 22 aut)
+  - "Data Output from F1 25: 2026 Season Pack" v1.2 (formát 2026, 24 aut)
 Pořadí kol v polích: RL, RR, FL, FR.
 """
 import struct
 
-NUM_CARS = 22
+MAX_CARS = 24
+NUM_CARS = MAX_CARS  # zpětná kompatibilita
 
-HEADER = struct.Struct('<HBBBBBQfIIBB')  # 29 B
+HEADER = struct.Struct('<HBBBBBQfIIBB')  # 29 B, stejné pro 2025 i 2026
 HEADER_SIZE = HEADER.size
 
 # packet ids
@@ -28,36 +31,68 @@ TYRE_SETS = 12
 MOTION_EX = 13
 TIME_TRIAL = 14
 LAP_POSITIONS = 15
+CAR_TELEMETRY_2 = 16  # jen formát 2026
 
-# Očekávané velikosti paketů (F1 25, formát 2025)
-PACKET_SIZES = {
-    MOTION: 1349,
-    SESSION: 753,
-    LAP_DATA: 1285,
-    EVENT: 45,
-    PARTICIPANTS: 1284,
-    CAR_TELEMETRY: 1352,
-    CAR_STATUS: 1239,
-    CAR_DAMAGE: 1041,
-    SESSION_HISTORY: 1460,
-    TIME_TRIAL: 101,
-}
-
-LAP = struct.Struct('<IIHBHBHBHBfff' + 'B' * 15 + 'HHBfB')  # 57 B
-TELEMETRY = struct.Struct('<HfffBbHBBH4H4B4BH4f4B')  # 60 B
-STATUS = struct.Struct('<BBBBBfffHHBBHBBBbfffBfffB')  # 55 B
-DAMAGE_STRIDE = 46
-DAMAGE_HEAD = struct.Struct('<4f4B4B')
-MOTION_CAR = struct.Struct('<ffffffhhhhhhffffff')  # 60 B
-PARTICIPANT = struct.Struct('<BBBBBBB32sBBHBB12s')  # 57 B
+LAP = struct.Struct('<IIHBHBHBHBfff' + 'B' * 15 + 'HHBfB')  # 57 B (2025 i 2026)
 HISTORY_HEAD = struct.Struct('<BBBBBBB')
 HISTORY_LAP = struct.Struct('<IHBHBHBB')  # 14 B
-TT_SET = struct.Struct('<BBIIIIBBBBBB')  # 24 B
 FORECAST = struct.Struct('<BBBbbbbB')  # 8 B
+TELEMETRY2 = struct.Struct('<BBHBBHBB')  # 10 B (2026)
+DAMAGE_STRIDE = 46
+DAMAGE_HEAD = struct.Struct('<4f4B4B')
 
-assert HEADER.size == 29 and LAP.size == 57 and TELEMETRY.size == 60
-assert STATUS.size == 55 and MOTION_CAR.size == 60 and PARTICIPANT.size == 57
-assert HISTORY_LAP.size == 14 and TT_SET.size == 24
+
+class Layout:
+    def __init__(self, fmt, cars, telemetry, status, motion, participant, tt_set, sizes):
+        self.format = fmt
+        self.cars = cars
+        self.telemetry = struct.Struct(telemetry)
+        self.status = struct.Struct(status)
+        self.motion = struct.Struct(motion)
+        self.participant = struct.Struct(participant)
+        self.tt_set = struct.Struct(tt_set)
+        self.sizes = sizes
+
+
+LAYOUT_2025 = Layout(
+    2025, 22,
+    telemetry='<HfffBbHBBH4H4B4BH4f4B',          # 60 B (engine temp uint16)
+    status='<BBBBBfffHHBBHBBBbfffBfffB',         # 55 B
+    motion='<ffffffhhhhhhffffff',                # 60 B (g-force float)
+    participant='<BBBBBBB32sBBHBB12s',           # 57 B
+    tt_set='<BBIIIIBBBBBB',                      # 24 B
+    sizes={MOTION: 1349, SESSION: 753, LAP_DATA: 1285, EVENT: 45, PARTICIPANTS: 1284,
+           CAR_TELEMETRY: 1352, CAR_STATUS: 1239, CAR_DAMAGE: 1041, SESSION_HISTORY: 1460,
+           TIME_TRIAL: 101},
+)
+
+LAYOUT_2026 = Layout(
+    2026, 24,
+    telemetry='<HfffBbHBBH4H4B4BB4f4B',          # 59 B (engine temp uint8)
+    status='<BBBBBfffHHBBHBBBbfffBffffB',        # 59 B (+ ERS harvest limit per lap)
+    motion='<ffffffhhhhhhhhhfff',                # 54 B (g-force int16)
+    participant='<BHHHBBB32sBBHBB12s',           # 60 B (driver/network/team id uint16)
+    tt_set='<BHIIIIBBBBBB',                      # 25 B (team id uint16)
+    sizes={MOTION: 1325, SESSION: 926, LAP_DATA: 1399, EVENT: 45, PARTICIPANTS: 1470,
+           CAR_TELEMETRY: 1448, CAR_STATUS: 1445, CAR_DAMAGE: 1133, SESSION_HISTORY: 1460,
+           TIME_TRIAL: 104, CAR_TELEMETRY_2: 269},
+)
+
+LAYOUTS = {2025: LAYOUT_2025, 2026: LAYOUT_2026}
+PACKET_SIZES = LAYOUT_2025.sizes  # zpětná kompatibilita
+
+# Tlačítka (BUTN event) – UDP Action 1..12 lze ve hře namapovat na ovladač
+UDP_ACTION_BITS = {i + 1: 0x00100000 << i for i in range(12)}
+
+for _l in LAYOUTS.values():
+    assert HEADER_SIZE + _l.cars * LAP.size + 2 == _l.sizes[LAP_DATA]
+    assert HEADER_SIZE + _l.cars * _l.telemetry.size + 3 == _l.sizes[CAR_TELEMETRY]
+    assert HEADER_SIZE + _l.cars * _l.status.size == _l.sizes[CAR_STATUS]
+    assert HEADER_SIZE + _l.cars * _l.motion.size == _l.sizes[MOTION]
+    assert HEADER_SIZE + 1 + _l.cars * _l.participant.size == _l.sizes[PARTICIPANTS]
+    assert HEADER_SIZE + _l.cars * DAMAGE_STRIDE == _l.sizes[CAR_DAMAGE]
+    assert HEADER_SIZE + 3 * _l.tt_set.size == _l.sizes[TIME_TRIAL]
+assert HEADER_SIZE + 24 * TELEMETRY2.size == LAYOUT_2026.sizes[CAR_TELEMETRY_2]
 
 
 def _ms(ms_part, min_part):
@@ -75,10 +110,10 @@ def parse_header(data):
     }
 
 
-def parse_lap_data(data):
+def parse_lap_data(data, L):
     cars = []
     off = HEADER_SIZE
-    for _ in range(NUM_CARS):
+    for _ in range(L.cars):
         v = LAP.unpack_from(data, off)
         off += LAP.size
         cars.append({
@@ -104,12 +139,12 @@ def parse_lap_data(data):
     return {'cars': cars, 'tt_pb_idx': pb_idx, 'tt_rival_idx': rival_idx}
 
 
-def parse_telemetry(data):
+def parse_telemetry(data, L):
     cars = []
     off = HEADER_SIZE
-    for _ in range(NUM_CARS):
-        v = TELEMETRY.unpack_from(data, off)
-        off += TELEMETRY.size
+    for _ in range(L.cars):
+        v = L.telemetry.unpack_from(data, off)
+        off += L.telemetry.size
         cars.append({
             'speed': v[0], 'throttle': v[1], 'steer': v[2], 'brake': v[3],
             'gear': v[5], 'rpm': v[6], 'drs': v[7],
@@ -122,28 +157,49 @@ def parse_telemetry(data):
     return {'cars': cars}
 
 
-def parse_status(data):
+def parse_telemetry2(data, L):
     cars = []
-    off = HEADER_SIZE
-    for _ in range(NUM_CARS):
-        v = STATUS.unpack_from(data, off)
-        off += STATUS.size
+    for i in range(24):
+        v = TELEMETRY2.unpack_from(data, HEADER_SIZE + i * TELEMETRY2.size)
         cars.append({
-            'fuel_mix': v[2], 'brake_bias': v[3],
-            'fuel_in_tank': v[5], 'fuel_capacity': v[6],
-            'fuel_remaining_laps': v[7],
-            'drs_allowed': v[11],
-            'actual_compound': v[13], 'visual_compound': v[14],
-            'tyre_age': v[15], 'fia_flag': v[16],
-            'ers_store': v[19], 'ers_mode': v[20],
-            'ers_deployed_lap': v[23],
+            'aero_mode': v[0],             # 0 = Corner mode, 1 = Straight mode
+            'aero_available': v[1],
+            'aero_distance': v[2],         # m do zpřístupnění active aero
+            'overtake_available': v[3],
+            'overtake_active': v[4],
+            'overtake_distance': v[5],     # m do zpřístupnění overtake mode
+            'regs_2026': v[6],
+            'wrong_way': v[7],
         })
     return {'cars': cars}
 
 
-def parse_damage(data):
+def parse_status(data, L):
     cars = []
-    for i in range(NUM_CARS):
+    off = HEADER_SIZE
+    is26 = L.format == 2026
+    for _ in range(L.cars):
+        v = L.status.unpack_from(data, off)
+        off += L.status.size
+        cars.append({
+            'fuel_mix': v[2], 'brake_bias': v[3],
+            'fuel_in_tank': v[5], 'fuel_capacity': v[6],
+            'fuel_remaining_laps': v[7],
+            'drs_allowed': v[11], 'drs_distance': v[12],
+            'actual_compound': v[13], 'visual_compound': v[14],
+            'tyre_age': v[15], 'fia_flag': v[16],
+            'ice_power': v[17], 'mguk_power': v[18],
+            'ers_store': v[19], 'ers_mode': v[20],
+            'ers_harvested_k': v[21], 'ers_harvested_h': v[22],
+            'ers_harvest_limit': v[23] if is26 else None,
+            'ers_deployed_lap': v[24] if is26 else v[23],
+        })
+    return {'cars': cars}
+
+
+def parse_damage(data, L):
+    cars = []
+    for i in range(L.cars):
         v = DAMAGE_HEAD.unpack_from(data, HEADER_SIZE + i * DAMAGE_STRIDE)
         cars.append({
             'tyre_wear': [round(w, 1) for w in v[0:4]],
@@ -153,55 +209,66 @@ def parse_damage(data):
     return {'cars': cars}
 
 
-def parse_motion(data):
+def parse_motion(data, L):
     cars = []
     off = HEADER_SIZE
-    for _ in range(NUM_CARS):
-        v = MOTION_CAR.unpack_from(data, off)
-        off += MOTION_CAR.size
-        cars.append({'x': v[0], 'y': v[1], 'z': v[2],
-                     'g_lat': v[12], 'g_long': v[13]})
+    for _ in range(L.cars):
+        v = L.motion.unpack_from(data, off)
+        off += L.motion.size
+        cars.append({'x': v[0], 'y': v[1], 'z': v[2]})
     return {'cars': cars}
 
 
-def parse_session(data):
+def _zones(data, off, n, max_n):
+    out = []
+    for i in range(min(n, max_n)):
+        a, b = struct.unpack_from('<ff', data, off + i * 8)
+        out.append((a, b))
+    return out
+
+
+def parse_session(data, L):
     (weather, track_temp, air_temp, total_laps, track_length, session_type,
      track_id, formula, time_left, duration, pit_limit) = struct.unpack_from(
         '<BbbBHBbBHHB', data, 29)
-    game_paused = data[43]
-    safety_car = data[153]
-    n_fc = data[155]
-    forecast = []
-    for i in range(min(n_fc, 64)):
-        f = FORECAST.unpack_from(data, 156 + i * 8)
-        if f[0] == session_type:
-            forecast.append({'offset_min': f[1], 'weather': f[2], 'rain_pct': f[7]})
-    ai_difficulty = data[669]
-    game_mode = data[694]
-    s2_start, s3_start = struct.unpack_from('<ff', data, 745)
-    return {
+    s = {
         'weather': weather, 'track_temp': track_temp, 'air_temp': air_temp,
         'total_laps': total_laps, 'track_length': track_length,
         'session_type': session_type, 'track_id': track_id, 'formula': formula,
         'time_left': time_left, 'duration': duration, 'pit_limit': pit_limit,
-        'paused': game_paused, 'safety_car': safety_car, 'forecast': forecast,
-        'ai_difficulty': ai_difficulty, 'game_mode': game_mode,
-        'sector2_start': s2_start, 'sector3_start': s3_start,
+        'paused': data[43], 'safety_car': data[153], 'network': data[154],
+        'ai_difficulty': data[669], 'game_mode': data[694],
+        'pit_ideal_lap': data[682], 'pit_latest_lap': data[683],
     }
+    n_fc = data[155]
+    s['forecast'] = []
+    for i in range(min(n_fc, 64)):
+        f = FORECAST.unpack_from(data, 156 + i * 8)
+        if f[0] == session_type:
+            s['forecast'].append({'offset_min': f[1], 'weather': f[2], 'rain_pct': f[7]})
+    s['sector2_start'], s['sector3_start'] = struct.unpack_from('<ff', data, 745)
+    if L.format == 2026:
+        # Active aero a DRS zóny (zlomky délky kola 0..1)
+        s['aero_status'] = data[753]          # 0 = Full, 1 = Partial
+        s['aero_zones_full'] = _zones(data, 755, data[754], 8)
+        s['aero_zones_partial'] = _zones(data, 820, data[819], 8)
+        s['drs_zones'] = _zones(data, 885, data[884], 4)
+        s['start_reaction'] = struct.unpack_from('<f', data, 917)[0]
+    return s
 
 
-def parse_participants(data):
+def parse_participants(data, L):
     num = data[29]
     cars = []
-    for i in range(NUM_CARS):
-        v = PARTICIPANT.unpack_from(data, 30 + i * PARTICIPANT.size)
+    for i in range(L.cars):
+        v = L.participant.unpack_from(data, 30 + i * L.participant.size)
         name = v[7].split(b'\x00', 1)[0].decode('utf-8', 'replace')
         cars.append({'ai': v[0], 'driver_id': v[1], 'team_id': v[3],
                      'number': v[5], 'name': name})
     return {'num_active': num, 'cars': cars}
 
 
-def parse_session_history(data):
+def parse_session_history(data, L):
     car, num_laps, num_stints, best_lap, b1, b2, b3 = HISTORY_HEAD.unpack_from(data, 29)
     laps = []
     for i in range(min(num_laps, 100)):
@@ -212,23 +279,33 @@ def parse_session_history(data):
             'best_s': (b1, b2, b3), 'laps': laps}
 
 
-def parse_time_trial(data):
+def parse_time_trial(data, L):
     sets = []
     for i in range(3):
-        v = TT_SET.unpack_from(data, 29 + i * TT_SET.size)
+        v = L.tt_set.unpack_from(data, 29 + i * L.tt_set.size)
         sets.append({'car': v[0], 'team': v[1], 'lap_ms': v[2],
                      's1': v[3], 's2': v[4], 's3': v[5], 'valid': v[11]})
     return {'session_best': sets[0], 'personal_best': sets[1], 'rival': sets[2]}
 
 
-def parse_event(data):
+def parse_event(data, L):
     code = data[29:33].decode('ascii', 'replace')
     ev = {'code': code}
-    if code == 'BUTN' and len(data) >= 37:
+    if code == 'BUTN':
         ev['buttons'] = struct.unpack_from('<I', data, 33)[0]
-    elif code == 'FTLP' and len(data) >= 34:
+    elif code == 'FTLP':
         ev['car'] = data[33]
         ev['lap_time'] = struct.unpack_from('<f', data, 34)[0]
+    elif code == 'OVTK':
+        ev['overtaker'], ev['overtaken'] = data[33], data[34]
+    elif code == 'PMEN':
+        ev['reason'] = data[33]
+    elif code == 'SCAR':
+        ev['sc_type'], ev['sc_event'] = data[33], data[34]
+    elif code == 'COLL':
+        ev['car1'], ev['car2'] = data[33], data[34]
+        if L.format == 2026:
+            ev['severity'] = data[35]
     return ev
 
 
@@ -239,6 +316,7 @@ PARSERS = {
     EVENT: parse_event,
     PARTICIPANTS: parse_participants,
     CAR_TELEMETRY: parse_telemetry,
+    CAR_TELEMETRY_2: parse_telemetry2,
     CAR_STATUS: parse_status,
     CAR_DAMAGE: parse_damage,
     SESSION_HISTORY: parse_session_history,
@@ -247,17 +325,17 @@ PARSERS = {
 
 
 def parse_packet(data):
-    """Vrátí (header, packet_id, payload) nebo None pro nepodporované pakety."""
+    """Vrátí (header, packet_id, payload) nebo None. payload je None pro
+    nepodporované pakety, neznámý formát nebo špatnou velikost."""
     hdr = parse_header(data)
     if hdr is None:
         return None
     pid = hdr['packet_id']
+    L = LAYOUTS.get(hdr['format'])
     parser = PARSERS.get(pid)
-    if parser is None:
+    if parser is None or L is None:
         return hdr, pid, None
-    need = PACKET_SIZES.get(pid, 0)
-    if pid == EVENT:
-        need = 33
-    if len(data) < need:
+    need = L.sizes.get(pid)
+    if need is None or len(data) < need:
         return hdr, pid, None
-    return hdr, pid, parser(data)
+    return hdr, pid, parser(data, L)

@@ -9,6 +9,7 @@ let compareLap = null;
 let lastSpoken = null;
 let radioOn = false;
 let settingsLoaded = false;
+let lastZones = '';
 
 // ------------------------------------------------------------------ formát
 function fmtLap(ms) {
@@ -69,6 +70,8 @@ function render() {
   if (document.querySelector('#tab-race.active')) renderRace(s);
   $('aiMode').textContent = s.has_gemini ? 'Odpovídá Gemini (online).' : 'Offline režim. Pro chytřejší odpovědi vlož Gemini klíč v Nastavení.';
 
+  const zKey = JSON.stringify((s.regs && (s.regs.aero_zones || s.regs.drs_zones)) || []);
+  if (zKey !== lastZones) { lastZones = zKey; drawMap(); }
   if (s.track_version !== trackVersion) {
     trackVersion = s.track_version;
     fetch('/api/track').then((r) => r.json()).then((t) => { track = t; drawMap(); });
@@ -78,6 +81,9 @@ function render() {
     if (document.querySelector('#tab-corners.active')) loadCompare(false);
   }
   speakNew(s.messages);
+  if (listenSeq === null) listenSeq = s.listen_seq;
+  if (s.listen_seq !== listenSeq) { listenSeq = s.listen_seq; Voice.listenNow(); }
+  renderRegs(s);
 }
 
 function renderLive(s) {
@@ -151,6 +157,44 @@ function renderRadio(s) {
   }).join('');
 }
 
+// ------------------------------------------------------------------ regulace 2026
+function renderRegs(s) {
+  const r = s.regs || {};
+  $('fmt').textContent = s.format ? `UDP ${s.format}` : '';
+  const live = r.active && r.aero;
+  cls($('regsLive'), 'hidden', !live && !(r.ers && s.format === 2026));
+  if (r.aero) {
+    $('aeroMode').textContent = r.aero.mode.toUpperCase();
+    $('aeroInfo').textContent = r.aero.available ? 'zone available' :
+      (r.aero.distance ? `in ${r.aero.distance} m` : '');
+    $('aeroBox').className = 'reg ' + (r.aero.mode === 'Straight' ? 'on' : (r.aero.available ? 'warn' : ''));
+    if (r.aero_status === 'Partial') $('aeroInfo').textContent += ' · PARTIAL';
+  }
+  if (r.overtake) {
+    const o = r.overtake;
+    $('otState').textContent = o.active ? 'ACTIVE' : o.available ? 'READY' : '–';
+    $('otInfo').textContent = !o.active && !o.available && o.distance ? `in ${o.distance} m` : '';
+    $('otBox').className = 'reg ' + (o.active ? 'hot' : o.available ? 'on' : '');
+  }
+  if (r.ers) {
+    const e = r.ers;
+    $('ersPct').textContent = e.pct + ' %';
+    $('ersBar').style.width = Math.min(100, e.pct) + '%';
+    $('ersInfo').textContent = `${e.mode}` + (e.harvest_left_mj !== undefined ? ` · harvest left ${e.harvest_left_mj} MJ` : '');
+  }
+  if (document.querySelector('#tab-race.active')) {
+    if (!r.ers) { $('ersRace').textContent = 'Jen s UDP formátem 2026 (Season Pass).'; return; }
+    const e = r.ers, last = r.last_lap || {};
+    $('ersRace').innerHTML =
+      `Battery <b>${e.pct} %</b> (${e.store_mj} MJ) · deploy mode <b>${e.mode}</b><br>` +
+      `This lap: deployed ${e.deployed_lap_mj} MJ · harvested ${e.harvested_lap_mj} MJ` +
+      (e.harvest_limit_mj ? ` / limit ${e.harvest_limit_mj} MJ` : '') + '<br>' +
+      (r.aero ? `Active aero <b>${r.aero.mode}</b>${r.aero_status ? ' · track status ' + r.aero_status : ''}<br>` : '') +
+      (r.overtake ? `Overtake mode <b>${r.overtake.active ? 'ACTIVE' : r.overtake.available ? 'READY' : 'not available'}</b><br>` : '') +
+      (last.straight_pct !== undefined ? `Last lap: straight mode ${last.straight_pct} % of zones · overtake used ${last.ot_uses || 0}×` : '');
+  }
+}
+
 // ------------------------------------------------------------------ mapa
 function mapGeom(canvas) {
   const o = track && track.outline;
@@ -178,6 +222,26 @@ function drawMap() {
   ctx.beginPath();
   o.x.forEach((x, i) => { const [px, pz] = g.P(x, o.z[i]); i ? ctx.lineTo(px, pz) : ctx.moveTo(px, pz); });
   ctx.closePath(); ctx.stroke();
+  // active aero zóny (2026) / DRS zóny – zlomky délky kola
+  const regs = (S && S.regs) || {};
+  const zones = (regs.aero_zones && regs.aero_zones.length) ? regs.aero_zones : (regs.drs_zones || []);
+  if (zones.length && o.dist.length) {
+    const L = o.dist[o.dist.length - 1] || 1;
+    ctx.lineWidth = 6; ctx.strokeStyle = regs.aero_status === 'Partial' ? '#f59e0b' : '#38bdf8';
+    zones.forEach(([a, b]) => {
+      const segs = b >= a ? [[a, b]] : [[a, 1], [0, b]];
+      segs.forEach(([za, zb]) => {
+        ctx.beginPath(); let started = false;
+        o.dist.forEach((d, i) => {
+          const f = d / L;
+          if (f < za || f > zb) return;
+          const [px, pz] = g.P(o.x[i], o.z[i]);
+          started ? ctx.lineTo(px, pz) : ctx.moveTo(px, pz); started = true;
+        });
+        ctx.stroke();
+      });
+    });
+  }
   // start
   const [sx, sz] = g.P(o.x[0], o.z[0]);
   ctx.fillStyle = '#fff'; ctx.fillRect(sx - 2, sz - 8, 4, 16);
@@ -305,9 +369,11 @@ function renderLaps(s) {
       <td class="num">${fmtSec(l.sectors[0])}</td><td class="num">${fmtSec(l.sectors[1])}</td><td class="num">${fmtSec(l.sectors[2])}</td>
       <td class="num ${l.delta > 0 ? 'loss' : 'gain'}">${l.delta !== undefined ? fmtDelta(l.delta, 3) : '–'}</td>
       <td>${comp}${l.tyre_age !== undefined ? ' ' + l.tyre_age : ''}</td>
+      <td class="num ${l.straight_pct !== undefined && l.straight_pct < 90 ? 'loss' : ''}">${l.straight_pct !== undefined ? l.straight_pct + '%' : '–'}</td>
+      <td class="num">${l.ot_uses !== undefined ? l.ot_uses : '–'}</td>
       <td>${l.valid ? '' : '⚠️'}${l.clean ? '' : ' 🅿️'}</td></tr>`;
   });
-  $('lapTable').querySelector('tbody').innerHTML = rows.join('') || '<tr><td colspan="8" class="muted">Zatím žádné laps.</td></tr>';
+  $('lapTable').querySelector('tbody').innerHTML = rows.join('') || '<tr><td colspan="10" class="muted">Zatím žádné laps.</td></tr>';
 }
 
 function loadHistory() {
@@ -378,23 +444,29 @@ function renderRace(s) {
     `Lap time trend <span class="${p.trend > 0 ? 'loss' : 'gain'}">${fmtDelta(p.trend, 3)} s</span>` : 'Pace spočítám po 2 lapech.');
 }
 
-// ------------------------------------------------------------------ hlas
-function pickVoice(lang) {
+// ------------------------------------------------------------------ hlas (výstup)
+function lang() { return (S && S.settings.lang) || 'en'; }
+function pickVoice(l) {
   const voices = speechSynthesis.getVoices();
-  const want = lang === 'en' ? ['en-GB', 'en-US', 'en'] : ['cs-CZ', 'cs'];
+  const want = l === 'cs' ? ['cs-CZ', 'cs'] : ['en-GB', 'en-US', 'en'];
   for (const w of want) {
     const v = voices.find((x) => x.lang && x.lang.replace('_', '-').startsWith(w));
     if (v) return v;
   }
   return null;
 }
+let speakingCount = 0;
 function speak(text) {
   if (!radioOn || !('speechSynthesis' in window)) return;
-  const lang = (S && S.settings.lang) || 'cs';
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = lang === 'en' ? 'en-GB' : 'cs-CZ';
-  const v = pickVoice(lang); if (v) u.voice = v;
+  u.lang = lang() === 'cs' ? 'cs-CZ' : 'en-GB';
+  const v = pickVoice(lang()); if (v) u.voice = v;
   u.rate = 1.08;
+  speakingCount++;
+  Voice.pause();  // ať Bono neslyší sám sebe
+  const done = () => { speakingCount = Math.max(0, speakingCount - 1); if (!speakingCount) Voice.resume(); };
+  u.onend = done; u.onerror = done;
+  beep(660, 0.05, 0.04);  // „cvak“ rádia
   speechSynthesis.speak(u);
 }
 function speakNew(msgs) {
@@ -402,21 +474,158 @@ function speakNew(msgs) {
   const maxId = msgs[msgs.length - 1].id;
   if (lastSpoken === null) { lastSpoken = maxId; return; }  // nečti historii po načtení
   msgs.filter((m) => m.id > lastSpoken).forEach((m) => {
-    if (S.settings.voice !== false) speak(m.text);
+    if (S.settings.voice !== false || m.prio === 3) speak(m.text);
   });
   lastSpoken = Math.max(lastSpoken, maxId);
 }
-let wakeLock = null;
-$('radioBtn').onclick = async () => {
-  radioOn = !radioOn;
-  $('radioBtn').textContent = radioOn ? '🔊 Radio' : '🔇 Radio';
-  $('radioBtn').className = radioOn ? 'radio-on' : 'radio-off';
-  if (radioOn) {
-    speak('Radio check.');
-    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (_) { /* nepodstatné */ }
-  } else if ('speechSynthesis' in window) speechSynthesis.cancel();
+
+let audioCtx = null;
+function beep(freq = 880, dur = 0.12, vol = 0.15) {
+  try {
+    if (!audioCtx) return;
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.frequency.value = freq; g.gain.value = vol;
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + dur);
+  } catch (_) { /* bez zvuku */ }
+}
+
+// ------------------------------------------------------------------ hlas (vstup): wake word "Bono"
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const Voice = {
+  rec: null, on: false, paused: false, mode: 'wake', cmdTimer: null, restartTimer: null, errors: 0,
+  wakeRe() {
+    const w = ((S && S.settings.wake_word) || 'bono').toLowerCase().replace(/[^a-z0-9áéíóúůýčďěňřšťž ]/g, '');
+    const variants = w === 'bono' ? 'bono|bonno|bonnow|bonneau|bonó|buono|bueno|bonobo|bona|bonu|bonnie' : w;
+    return new RegExp('\\b(?:hey |ok )?(?:' + variants + ')\\b[,.!? ]*', 'i');
+  },
+  supported() { return !!SR; },
+  start() {
+    if (!SR) { setMic('off', 'Voice not supported in this browser, use the controller buttons'); return false; }
+    this.on = true; this.errors = 0; this.mode = 'wake';
+    this._create(); this._go();
+    return true;
+  },
+  stop() {
+    this.on = false; clearTimeout(this.restartTimer); clearTimeout(this.cmdTimer);
+    try { this.rec && this.rec.abort(); } catch (_) { /* */ }
+    setMic('off');
+  },
+  pause() { if (!this.on) return; this.paused = true; try { this.rec && this.rec.abort(); } catch (_) { /* */ } },
+  resume() { if (!this.on || !this.paused) return; this.paused = false; this._go(250); },
+  listenNow() {  // tlačítko na ovladači / klepnutí: poslouchej příkaz bez wake wordu
+    if (!this.on) return;
+    this.mode = 'command'; beep(880, 0.12);
+    setMic('cmd');
+    clearTimeout(this.cmdTimer);
+    this.cmdTimer = setTimeout(() => { this.mode = 'wake'; setMic('wake'); }, 8000);
+  },
+  _create() {
+    const rec = new SR();
+    rec.lang = lang() === 'cs' ? 'cs-CZ' : 'en-GB';
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onresult = (e) => this._onResult(e);
+    rec.onerror = (e) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        this.on = false;
+        setMic('off', 'Microphone blocked. Allow mic & speech recognition for Safari, server must run on http://localhost (iPad) or use controller buttons.');
+      } else if (e.error !== 'aborted' && e.error !== 'no-speech') {
+        this.errors++;
+      }
+    };
+    rec.onend = () => { if (this.on && !this.paused) this._go(this.errors > 5 ? 3000 : 300); };
+    this.rec = rec;
+  },
+  _go(delay = 0) {
+    clearTimeout(this.restartTimer);
+    this.restartTimer = setTimeout(() => {
+      if (!this.on || this.paused) return;
+      try { this.rec.start(); setMic(this.mode === 'command' ? 'cmd' : 'wake'); } catch (_) { /* už běží */ }
+    }, delay);
+  },
+  _onResult(e) {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      const text = r[0].transcript.trim();
+      if (!text) continue;
+      const m = text.match(this.wakeRe());
+      if (!r.isFinal) {
+        if (m || this.mode === 'command') setMic('cmd', text);
+        continue;
+      }
+      if (this.mode === 'command') {
+        clearTimeout(this.cmdTimer); this.mode = 'wake';
+        this._submit(text.replace(this.wakeRe(), ''));
+      } else if (m) {
+        const rest = text.slice(m.index + m[0].length).trim();
+        if (rest.length > 2) this._submit(rest);
+        else this.listenNow();
+      }
+    }
+  },
+  _submit(q) {
+    q = q.trim();
+    setMic('wake');
+    if (!q) return;
+    beep(520, 0.08);
+    ask(q, true);
+  },
 };
+
+function setMic(state, detail) {
+  const el = $('micState');
+  const name = (S && S.settings.engineer_name) || 'Bono';
+  const labels = {
+    off: '🎙️ off', wake: `👂 say “${name}”`, cmd: `🔴 ${name} listening…`,
+  };
+  el.textContent = labels[state] || state;
+  el.className = 'mic ' + state;
+  el.title = detail || '';
+  if (detail && state === 'cmd') el.textContent = '🔴 ' + detail.slice(-40);
+  if (detail && state === 'off') { $('micHint').textContent = detail; $('micHint').classList.remove('hidden'); }
+  else $('micHint').classList.add('hidden');
+}
+
+let wakeLock = null;
+let listenSeq = null;
+async function startBono() {
+  radioOn = true;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+  } catch (_) { /* bez zvuku */ }
+  // iOS: hlas musí poprvé zaznít v reakci na klepnutí
+  const name = (S && S.settings.engineer_name) || 'Bono';
+  speak(lang() === 'cs' ? `${name} tady. Slyšíme se.` : `${name} here. Radio check, loud and clear.`);
+  Voice.start();
+  try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (_) { /* nepodstatné */ }
+  $('bonoBtn').textContent = '⏹ Stop';
+  $('bonoBtn').className = 'radio-on';
+}
+function stopBono() {
+  radioOn = false;
+  Voice.stop();
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  try { wakeLock && wakeLock.release(); } catch (_) { /* */ }
+  $('bonoBtn').textContent = '▶ Start Bono';
+  $('bonoBtn').className = 'radio-off';
+}
+$('bonoBtn').onclick = () => (radioOn ? stopBono() : startBono());
+$('micState').onclick = () => { if (Voice.on) Voice.listenNow(); };
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && radioOn && 'wakeLock' in navigator) {
+    navigator.wakeLock.request('screen').then((w) => { wakeLock = w; }).catch(() => {});
+  }
+});
 if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => {};
+setMic('off');
+if (!SR || !window.isSecureContext) {
+  $('micHint').textContent = !SR
+    ? 'This browser has no speech recognition. Use controller buttons (UDP Action) to talk to Bono.'
+    : 'Voice wake word needs a secure page: run the server on this iPad and open http://localhost:8080. Controller buttons work everywhere.';
+  $('micHint').classList.remove('hidden');
+}
 
 // ------------------------------------------------------------------ chat
 function addBubble(text, who) {
@@ -424,27 +633,26 @@ function addBubble(text, who) {
   d.className = 'bubble ' + who; d.textContent = text;
   $('chat').appendChild(d); $('chat').scrollTop = 1e9;
 }
-async function ask(q) {
+async function ask(q, viaVoice) {
   if (!q) return;
-  addBubble(q, 'me');
+  addBubble((viaVoice ? '🎙️ ' : '') + q, 'me');
   $('askInput').value = '';
   try {
     const r = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q }) });
     const d = await r.json();
     addBubble(d.text || d.error, 'eng');
-  } catch (e) { addBubble('Spojení se serverem selhalo.', 'eng'); }
+  } catch (e) { addBubble('No connection to the server.', 'eng'); }
 }
 $('askForm').onsubmit = (e) => { e.preventDefault(); ask($('askInput').value.trim()); };
 document.querySelectorAll('.quick button').forEach((b) => { b.onclick = () => ask(b.dataset.q); });
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (!SR) $('micBtn').title = 'Diktování: použij mikrofon na klávesnici iOS';
 $('micBtn').onclick = () => {
+  if (Voice.on) { Voice.listenNow(); return; }
   if (!SR) { $('askInput').focus(); return; }
   const rec = new SR();
-  rec.lang = (S && S.settings.lang === 'en') ? 'en-GB' : 'cs-CZ';
+  rec.lang = lang() === 'cs' ? 'cs-CZ' : 'en-GB';
   rec.interimResults = false;
   $('micBtn').textContent = '⏺️';
-  rec.onresult = (e) => ask(e.results[0][0].transcript);
+  rec.onresult = (e) => ask(e.results[0][0].transcript, true);
   rec.onend = () => { $('micBtn').textContent = '🎙️'; };
   rec.onerror = () => { $('micBtn').textContent = '🎙️'; $('askInput').focus(); };
   rec.start();
@@ -458,6 +666,8 @@ function fillSettings(s) {
   $('sVoice').checked = st.voice !== false;
   $('sKey').value = s.has_gemini ? '***' : '';
   $('sModel').value = st.gemini_model || '';
+  $('sName').value = st.engineer_name || 'Bono';
+  $('sWake').value = st.wake_word || 'bono';
   settingsLoaded = true;
 }
 $('saveBtn').onclick = async () => {
@@ -466,6 +676,7 @@ $('saveBtn').onclick = async () => {
     lang: $('sLang').value, level: parseInt($('sLevel').value, 10), reference: $('sRef').value,
     difficulty_override: ai === '' ? null : parseInt(ai, 10), voice: $('sVoice').checked,
     gemini_key: $('sKey').value.trim(), gemini_model: $('sModel').value.trim() || 'gemini-2.5-flash',
+    engineer_name: $('sName').value.trim() || 'Bono', wake_word: ($('sWake').value.trim() || 'bono').toLowerCase(),
   };
   await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   $('saveBtn').textContent = 'Uloženo ✓';

@@ -27,9 +27,10 @@ def trace_from_profile(errors=None, skill=0.93):
     return resample(samples, SIM.TRACK_LEN, t * 1000)
 
 
-def run_sim(mode='quali', laps=5, ai=95, seed=3):
+def run_sim(mode='quali', laps=5, ai=95, seed=3, fmt=2025):
     eng = Engine(Storage(tempfile.mkdtemp()))
-    for _, pkt in SIM.generate(mode, laps=laps, ai=ai, seed=seed):
+    eng.settings['lang'] = 'cs'
+    for _, pkt in SIM.generate(mode, laps=laps, ai=ai, seed=seed, fmt=fmt):
         eng.handle(pkt)
     return eng
 
@@ -44,6 +45,30 @@ class PacketTests(unittest.TestCase):
                 break
         for pid, size in seen.items():
             self.assertEqual(size, P.PACKET_SIZES[pid], 'packet %d' % pid)
+
+    def test_2026_packet_sizes_match_official_spec(self):
+        # velikosti z "Data Output from F1 25: 2026 Season Pack" v1.2
+        official = {0: 1325, 1: 926, 2: 1399, 4: 1470, 6: 1448, 7: 1445, 10: 1133, 16: 269}
+        seen = {}
+        for _, pkt in SIM.generate('race', laps=1, seed=1, fmt=2026):
+            seen[P.parse_header(pkt)['packet_id']] = len(pkt)
+            if len(seen) >= len(official):
+                break
+        for pid, size in official.items():
+            self.assertEqual(seen[pid], size, 'packet %d' % pid)
+            self.assertEqual(P.LAYOUT_2026.sizes[pid], size)
+
+    def test_2026_session_aero_zones(self):
+        pk = SIM.Packer(2026, 7)
+        _, _, s = P.parse_packet(pk.session(0.0, 0, 15, 10, 90))
+        self.assertEqual(s['ai_difficulty'], 90)
+        self.assertEqual(len(s['aero_zones_full']), len(SIM.AERO_ZONES))
+        self.assertTrue(0 <= s['aero_zones_full'][0][0] < 1)
+
+    def test_unknown_format_rejected(self):
+        pkt = bytearray(SIM.pack_session(42, 1.0, 1, 7, 12, 93))
+        pkt[0:2] = (2024).to_bytes(2, 'little')
+        self.assertIsNone(P.parse_packet(bytes(pkt))[2])
 
     def test_session_fields(self):
         pkt = SIM.pack_session(42, 1.0, 1, 7, 12, 93)
@@ -206,6 +231,91 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(len(eng.player_laps), 1)
         # PB z předchozí session zůstává
         self.assertIsNotNone(eng._stored_pb())
+
+
+class Regs2026Tests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.e = run_sim('race', laps=8, ai=90, seed=11, fmt=2026)
+
+    def test_regs_snapshot(self):
+        s = self.e.snapshot()
+        json.dumps(s)
+        r = s['regs']
+        self.assertTrue(r['active'])
+        self.assertEqual(s['format'], 2026)
+        self.assertIn('pct', r['ers'])
+        self.assertIn('harvest_limit_mj', r['ers'])
+        self.assertIn(r['aero']['mode'], ('Straight', 'Corner'))
+        self.assertEqual(r['aero_status'], 'Full')
+        self.assertEqual(len(r['aero_zones']), len(SIM.AERO_ZONES))
+
+    def test_straight_mode_usage_per_lap(self):
+        pcts = [l.meta.get('straight_pct') for l in self.e.player_laps[1:]]
+        self.assertTrue(all(p is not None for p in pcts))
+        self.assertTrue(all(0 <= p <= 100 for p in pcts))
+        self.assertTrue(any(p >= 95 for p in pcts))
+
+    def test_race_control_and_lap_analysis_still_work(self):
+        texts = ' '.join(m['text'] for m in self.e.messages)
+        self.assertEqual(len(self.e.corners), len(SIM.CORNERS))
+        self.assertGreater(len(self.e.player_laps), 5)
+        self.assertIn('Lap', texts)
+
+    def test_ers_answer(self):
+        text, src = llm.answer(self.e, 'Bono, how is the battery?')
+        self.assertEqual(src, 'offline')
+        self.assertIn('Battery', text)
+
+
+class CommandTests(unittest.TestCase):
+    def setUp(self):
+        self.e = run_sim('race', laps=3, seed=4, fmt=2026)
+        self.e.settings['lang'] = 'en'
+
+    def test_wake_word_stripping(self):
+        self.assertEqual(llm.strip_wake_word('Bono, how are my tyres?', 'bono'),
+                         'how are my tyres')
+        self.assertEqual(llm.strip_wake_word('hey bono gap ahead', 'bono'), 'gap ahead')
+
+    def test_mute_unmute_repeat(self):
+        text, src = llm.answer(self.e, 'Bono, be quiet')
+        self.assertEqual(src, 'command')
+        self.assertFalse(self.e.settings['voice'])
+        llm.answer(self.e, 'bono talk to me')
+        self.assertTrue(self.e.settings['voice'])
+        self.e.say('Box this lap.')
+        text, _ = llm.answer(self.e, 'Bono say again')
+        self.assertEqual(text, 'Box this lap.')
+
+    def test_only_wake_word_is_radio_check(self):
+        text, src = llm.answer(self.e, 'Bono')
+        self.assertEqual(text, 'Loud and clear.')
+
+    def test_status_report(self):
+        text, _ = llm.answer(self.e, 'Bono, status report')
+        self.assertIn('P', text)
+        self.assertIn('Battery', text)
+
+    def test_controller_buttons(self):
+        pk = SIM.Packer(2026, self.e.session_uid)
+        n = len(self.e.messages)
+        seq = self.e.listen_seq
+        self.e.handle(pk.buttons(P.UDP_ACTION_BITS[2], 1.0, 1))   # status
+        self.e.handle(pk.buttons(0, 1.0, 2))
+        self.e.handle(pk.buttons(P.UDP_ACTION_BITS[1], 1.0, 3))   # listen
+        self.e.handle(pk.buttons(P.UDP_ACTION_BITS[1], 1.0, 4))   # podržení = bez nové akce
+        self.assertEqual(len(self.e.messages), n + 1)
+        self.assertEqual(self.e.listen_seq, seq + 1)
+
+    def test_foreign_session_packets_do_not_reset(self):
+        uid = self.e.session_uid
+        laps = len(self.e.player_laps)
+        other = SIM.Packer(2026, 12345)
+        self.e.handle(other.buttons(P.UDP_ACTION_BITS[3], 1.0, 1))
+        self.e.handle(other.telemetry2({}, 1.0, 2))
+        self.assertEqual(self.e.session_uid, uid)
+        self.assertEqual(len(self.e.player_laps), laps)
 
 
 if __name__ == '__main__':

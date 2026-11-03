@@ -78,7 +78,7 @@ def make_handler(engine, web_root):
                     return self._json({'error': 'empty'}, 400)
                 text, src = llm.answer(engine, q)
                 with engine.lock:
-                    engine.say(text, prio=2)
+                    engine.say(text, prio=3 if src == 'command' else 2)
                 return self._json({'text': text, 'source': src})
             if path == '/api/reset_corners':
                 engine.reset_corners()

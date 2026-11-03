@@ -20,8 +20,11 @@
   <span id="stype" class="muted"></span>
   <span id="ai" class="chip"></span>
   <span id="weather" class="muted"></span>
-  <button id="radioBtn" class="radio-off" title="Zapnout hlas">🔇 Radio</button>
+  <span id="fmt" class="muted small"></span>
+  <span id="micState" class="mic off">🎙️ off</span>
+  <button id="bonoBtn" class="radio-off">▶ Start Bono</button>
 </header>
+<div id="micHint" class="hint hidden"></div>
 <div id="warning" class="warning hidden"></div>
 
 <main>
@@ -46,6 +49,12 @@
           <div class="pedal"><div id="thr" class="fill green"></div></div>
           <div class="pedal"><div id="brk" class="fill red"></div></div>
           <div class="speed"><b id="speed" class="mono">0</b> km/h · <b id="gear">N</b></div>
+        </div>
+        <div id="regsLive" class="regs hidden">
+          <div class="reg" id="aeroBox"><span>Active aero</span><b id="aeroMode">–</b><i id="aeroInfo"></i></div>
+          <div class="reg" id="otBox"><span>Overtake</span><b id="otState">–</b><i id="otInfo"></i></div>
+          <div class="reg"><span>Battery</span><b id="ersPct">–</b>
+            <div class="bar"><div id="ersBar" class="fill blue"></div></div><i id="ersInfo"></i></div>
         </div>
       </div>
       <div class="card">
@@ -92,7 +101,7 @@
   <section id="tab-laps" class="tab">
     <div class="card">
       <table class="tbl" id="lapTable">
-        <thead><tr><th>Lap</th><th>Lap time</th><th>S1</th><th>S2</th><th>S3</th><th>Delta</th><th>Tyres</th><th></th></tr></thead>
+        <thead><tr><th>Lap</th><th>Lap time</th><th>S1</th><th>S2</th><th>S3</th><th>Delta</th><th>Tyres</th><th title="Straight mode použitý v % aero zón">SM %</th><th title="Overtake mode použití">OT</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -129,6 +138,10 @@
         <div class="label">Pace</div>
         <div id="paceInfo"></div>
       </div>
+      <div class="card" id="ersCard">
+        <div class="label">ERS &amp; 2026 regulations</div>
+        <div id="ersRace" class="small">Jen s UDP formátem 2026 (Season Pass).</div>
+      </div>
     </div>
   </section>
 
@@ -142,6 +155,8 @@
         <button data-q="Jaký je fuel delta?">Fuel</button>
         <button data-q="Jaký je gap a stahuju, nebo mě dojíždí?">Gaps</button>
         <button data-q="Jaká je moje pace a kolik chybí na target pro AI difficulty?">Pace / AI difficulty</button>
+        <button data-q="status report">Status report</button>
+        <button data-q="battery and overtake mode">Battery / Overtake</button>
       </div>
       <form id="askForm" class="row">
         <button type="button" id="micBtn" title="Mluvit">🎙️</button>
@@ -156,7 +171,11 @@
   <section id="tab-set" class="tab">
     <div class="card settings">
       <label>Jazyk inženýra
-        <select id="sLang"><option value="cs">Čeština</option><option value="en">English</option></select></label>
+        <select id="sLang"><option value="en">English</option><option value="cs">Čeština (F1 pojmy anglicky)</option></select></label>
+      <label>Jméno inženýra
+        <input id="sName" placeholder="Bono"></label>
+      <label>Wake word (co řekneš, aby poslouchal)
+        <input id="sWake" placeholder="bono"></label>
       <label>Úroveň inženýra
         <select id="sLevel"><option value="1">Rookie: málo hlášení, jednoduché rady</option>
           <option value="2">Advanced: standard</option>
@@ -182,10 +201,30 @@
       </div>
       <hr>
       <details>
+        <summary>Tlačítka na ovladači (UDP Action)</summary>
+        <p>Ve hře: Settings → Controls → přiřaď <b>UDP Action 1–8</b> volným tlačítkům (např. D-pad nebo páčky).</p>
+        <table class="tbl small"><tbody>
+          <tr><td>UDP Action 1</td><td>🎙️ Push-to-talk (Bono poslouchá bez wake wordu)</td></tr>
+          <tr><td>UDP Action 2</td><td>Status report (pozice, gapy, tyres, fuel, battery)</td></tr>
+          <tr><td>UDP Action 3</td><td>Kde ztrácím čas (turns)</td></tr>
+          <tr><td>UDP Action 4</td><td>Tyres</td></tr>
+          <tr><td>UDP Action 5</td><td>Gaps</td></tr>
+          <tr><td>UDP Action 6</td><td>Fuel</td></tr>
+          <tr><td>UDP Action 7</td><td>Repeat (zopakuj poslední hlášení)</td></tr>
+          <tr><td>UDP Action 8</td><td>Mute / Bono přestane mluvit sám od sebe</td></tr>
+        </tbody></table>
+      </details>
+      <details>
+        <summary>Hlasové příkazy</summary>
+        <p>„<b>Bono</b>, how are my tyres?“ · „Bono, gap ahead?“ · „Bono, where am I losing time?“ ·
+        „Bono, battery?“ · „Bono, status report“ · „Bono, fuel?“ · „Bono, say again“ · „Bono, be quiet“ ·
+        „Bono, talk to me“. Stačí i jen „Bono“: pípne a pak řekneš otázku.</p>
+      </details>
+      <details>
         <summary>Jak nastavit hru</summary>
         <p>F1 25 → Nastavení → Telemetrie:<br>
         UDP Telemetry: <b>On</b> · UDP Broadcast Mode: <b>Off</b> · UDP IP Address: <b>IP zařízení, kde běží server</b> ·
-        UDP Port: <b>20777</b> · UDP Send Rate: <b>20 Hz</b> · UDP Format: <b>2025</b> · Your Telemetry: <b>Public</b></p>
+        UDP Port: <b>20777</b> · UDP Send Rate: <b>20 Hz</b> · UDP Format: <b>2026</b> (se Season Passem, jinak 2025) · Your Telemetry: <b>Public</b></p>
       </details>
     </div>
   </section>

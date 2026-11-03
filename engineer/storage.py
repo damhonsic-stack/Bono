@@ -4,7 +4,12 @@ import os
 import threading
 
 DEFAULT_SETTINGS = {
-    'lang': 'cs',            # 'cs' | 'en'
+    'lang': 'en',            # 'en' | 'cs'
+    'engineer_name': 'Bono',
+    'wake_word': 'bono',
+    # UDP Action tlačítka (ve hře je namapuj na ovladač) -> akce
+    'buttons': {'1': 'listen', '2': 'status', '3': 'corners', '4': 'tyres',
+                '5': 'gaps', '6': 'fuel', '7': 'repeat', '8': 'mute'},
     'level': 2,              # 1 nováček, 2 pokročilý, 3 pro
     'reference': 'auto',     # auto | session_best | pb | ai_best | tt_rival
     'difficulty_override': None,  # None = vezmi obtížnost ze hry

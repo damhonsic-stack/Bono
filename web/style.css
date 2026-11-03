@@ -19,7 +19,19 @@ header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; bord
 .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
 .chip { background: var(--accent); padding: 2px 8px; border-radius: 6px; font-weight: 700; font-size: 13px; }
 .chip:empty { display: none; }
-#radioBtn { margin-left: auto; }
+#fmt { margin-left: auto; }
+.mic { font-size: 13px; padding: 6px 10px; border-radius: 8px; background: #1b2130; cursor: pointer; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.mic.wake { background: #12351f; color: #86efac; }
+.mic.cmd { background: #4c0d0d; color: #fecaca; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .6; } }
+.hint { background: #1e293b; color: #cbd5e1; padding: 8px 16px; font-size: 13px; }
+.regs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.reg { background: #0f131b; border-radius: 10px; padding: 8px 10px; border-left: 4px solid var(--line); }
+.reg span { color: var(--muted); font-size: 12px; display: block; }
+.reg b { font-size: 18px; display: block; } .reg i { font-style: normal; font-size: 12px; color: var(--muted); }
+.reg.on { border-color: var(--green); } .reg.hot { border-color: var(--purple); } .reg.warn { border-color: var(--yellow); }
+.bar { height: 6px; background: #1b2130; border-radius: 3px; overflow: hidden; margin: 4px 0; }
+.fill.blue { background: var(--blue); }
 .warning { background: #7c2d12; padding: 8px 16px; font-size: 14px; }
 
 button { background: #232a38; color: var(--text); border: 1px solid var(--line); border-radius: 10px;
