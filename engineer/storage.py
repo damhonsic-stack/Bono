@@ -7,6 +7,8 @@ DEFAULT_SETTINGS = {
     'lang': 'cs',            # 'cs' | 'en'
     'engineer_name': 'Bono',
     'wake_word': 'bono',
+    'wake_radio': True,      # reaguj i na „Rádio, …“ (jako skutečné týmové rádio)
+    'persona': 'bono',       # bono = klidný, vlasta = energická, kouc = přísný kouč
     # UDP Action tlačítka (ve hře je namapuj na ovladač) -> akce
     'buttons': {'1': 'listen', '2': 'status', '3': 'corners', '4': 'tyres',
                 '5': 'gaps', '6': 'fuel', '7': 'repeat', '8': 'mute',

@@ -16,7 +16,8 @@ import urllib.request
 
 from .constants import TRACKS
 
-SHARED_SETTINGS = ('lang', 'radio_mode', 'level', 'reference', 'engineer_name', 'wake_word',
+SHARED_SETTINGS = ('lang', 'radio_mode', 'level', 'reference', 'engineer_name', 'wake_word', 'persona',
+                   'wake_radio',
                    'voice_engine', 'tts_voice', 'difficulty_override', 'voice')
 PUSH_EVERY = 10
 PULL_EVERY = 90

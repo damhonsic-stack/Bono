@@ -135,7 +135,8 @@ class Incidents:
             if dmg[k] >= p[k] + 5 and dmg[k] >= 10:
                 self._emit('damage', part=R.DAMAGE_PARTS[k], p=dmg[k])
         front = max(dmg['fl_wing'], dmg['fr_wing'])
-        if is_race and front >= 40 and not self.wing_box_called and (laps_left or 99) > 3:
+        # okamžitý box jen při vážném poškození; jinak Bono nejdřív změří ztrátu na kolo
+        if is_race and front >= 60 and not self.wing_box_called and (laps_left or 99) > 3:
             self.wing_box_called = True
             self._emit('damage_box_wing', urgent=True)
         for i, d in enumerate(dmg['tyre_damage']):

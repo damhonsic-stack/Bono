@@ -162,6 +162,13 @@
         <div id="wxNow" class="lg">–</div>
         <div id="wxForecast" class="forecast"></div>
       </div>
+      <div class="card wide">
+        <div class="label">Standings</div>
+        <table class="tbl small" id="standingsTable">
+          <thead><tr><th>Pos</th><th>Driver</th><th>Gap</th><th>Interval</th><th>Tyre</th><th>Stinty</th><th>Pits</th><th>Last lap</th><th>Best</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
       <div class="card">
         <div class="label">Cars around</div>
         <table class="tbl small" id="aroundTable">
@@ -239,6 +246,8 @@
   <section id="tab-eng" class="tab">
     <div class="card chat-card">
       <div id="chat"></div>
+      <div class="label">Na co se zeptat teď</div>
+      <div class="quick" id="suggest"></div>
       <div class="quick">
         <button data-q="Ve kterém turnu ztrácím nejvíc?">Kde ztrácím?</button>
         <button data-q="Jaký mám tyre wear?">Tyres</button>
@@ -266,6 +275,11 @@
     <div class="card settings">
       <label>Jazyk inženýra
         <select id="sLang"><option value="en">English</option><option value="cs">Čeština (F1 pojmy anglicky)</option></select></label>
+      <label>Povaha engineera
+        <select id="sPersona"><option value="bono">Bono: klidný a věcný (hlas Antonín)</option>
+          <option value="vlasta">Vlasta: energická, povzbuzuje (hlas Vlasta)</option>
+          <option value="kouc">Kouč: přísný, chce víc (hlas Antonín)</option></select></label>
+      <label class="check"><input id="sWakeRadio" type="checkbox"> Reagovat i na „Rádio, …“ (vedle jména)</label>
       <label>Jméno inženýra
         <input id="sName" placeholder="Bono"></label>
       <label>Wake word (co řekneš, aby poslouchal)

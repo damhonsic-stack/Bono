@@ -339,8 +339,12 @@ def parse_session_history(data, L):
         v = HISTORY_LAP.unpack_from(data, 36 + i * HISTORY_LAP.size)
         laps.append({'lap_ms': v[0], 's1': _ms(v[1], v[2]), 's2': _ms(v[3], v[4]),
                      's3': _ms(v[5], v[6]), 'valid_flags': v[7]})
+    stints = []
+    for i in range(min(num_stints, 8)):
+        end, actual, visual = struct.unpack_from('<BBB', data, 1436 + i * 3)
+        stints.append({'end_lap': end, 'actual': actual, 'visual': visual})
     return {'car': car, 'num_laps': num_laps, 'best_lap': best_lap,
-            'best_s': (b1, b2, b3), 'laps': laps}
+            'best_s': (b1, b2, b3), 'laps': laps, 'stints': stints}
 
 
 def parse_time_trial(data, L):

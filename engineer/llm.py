@@ -1,5 +1,6 @@
 """Odpovědi na otázky jezdce: Gemini (volitelně) nebo offline pravidla."""
 import json
+import re
 import ssl
 import time
 import urllib.request
@@ -96,12 +97,27 @@ def _post(url, body, api_key, timeout):
         raise GeminiError('%d: %s' % (e.code, msg))
 
 
+PERSONAS = {
+    'cs': {'bono': 'Povaha: klidný, přátelský a věcný.',
+           'vlasta': 'Povaha: energická a povzbuzující, mluví s nadšením a chválí dobré věci.',
+           'kouc': 'Povaha: přísný kouč – stručný, náročný, chce víc a nic nepřikrášluje.'},
+    'en': {'bono': 'Personality: calm, friendly and factual.',
+           'vlasta': 'Personality: energetic and encouraging, enthusiastic, praises good work.',
+           'kouc': 'Personality: strict coach – short, demanding, always asks for more.'},
+}
+PERSONA = {'name': 'bono'}
+
+
+def persona_line(lang):
+    return PERSONAS.get(lang, PERSONAS['en']).get(PERSONA['name'], '')
+
+
 def ask_gemini(api_key, model, lang, question, context, timeout=8, name='Bono', system=None,
                max_tokens=2048, history=None):
     url = ('https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent' % model)
     body = {
-        'systemInstruction': {'parts': [{'text': system or SYSTEM_PROMPT.get(lang, SYSTEM_PROMPT['en'])
-                                          .replace('{name}', name)}]},
+        'systemInstruction': {'parts': [{'text': system or (SYSTEM_PROMPT.get(lang, SYSTEM_PROMPT['en'])
+                                          .replace('{name}', name) + '\n- ' + persona_line(lang))}]},
         'contents': [c for q, a in (history or [])[-6:] for c in (
             {'role': 'user', 'parts': [{'text': 'DRIVER: ' + q}]},
             {'role': 'model', 'parts': [{'text': a}]})] + [{
@@ -152,6 +168,8 @@ def ask_with_fallback(api_key, preferred, lang, question, context, name='Bono', 
 
 # ---------------------------------------------------------------- offline pravidla
 KEYWORDS = [
+    ('help', ['co se můžu zeptat', 'co se muzu zeptat', 'na co se můžu', 'what can i ask', 'nápověda',
+              'napoveda', 'co umíš', 'co umis', 'what can you do']),
     ('around', ['kdo je', 'kdo jede', 'who is', "who's", 'přede mnou', 'prede mnou', 'za mnou',
                 'ahead of me', 'behind me']),
     ('debrief', ['debrief', 'shrň session', 'session summary']),
@@ -218,6 +236,10 @@ def answer_offline(engine, question):
     st = smalltalk(question)
     if st and intent == 'pace' or st == 'thanks':
         return SMALLTALK_REPLY.get(lang, SMALLTALK_REPLY['en'])[st]
+    if intent == 'help':
+        st = (snap.get('session') or {}).get('type_id')
+        kind = 'help_race' if st in (15, 16, 17) else 'help_quali' if st in range(5, 15) else 'help_other'
+        return R.say(lang, 'help', q=R.say(lang, kind))
     if intent == 'around':
         return around_report(engine, snap)
     if intent == 'status':
@@ -519,7 +541,7 @@ GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 def ask_groq(api_key, model, lang, question, context, timeout=6, name='Bono', history=None):
     """Groq (zdarma, velmi rychlé): OpenAI-kompatibilní chat API."""
     msgs = [{'role': 'system', 'content': SYSTEM_PROMPT.get(lang, SYSTEM_PROMPT['en'])
-             .replace('{name}', name)}]
+             .replace('{name}', name) + '\n- ' + persona_line(lang)}]
     for q, a in (history or [])[-6:]:
         msgs += [{'role': 'user', 'content': 'DRIVER: ' + q}, {'role': 'assistant', 'content': a}]
     msgs.append({'role': 'user', 'content': 'DATA (JSON):\n' + json.dumps(context, ensure_ascii=False) +
@@ -593,7 +615,9 @@ def ask_fast(api_key, models, lang, question, context, name='Bono', history=None
 
 
 def answer(engine, question):
+    PERSONA['name'] = engine.settings.get('persona', 'bono')
     question = strip_wake_word(question, engine.settings.get('wake_word', 'bono'))
+    question = re.sub(r'^\W*r[aá]di[oa]\W*', '', question, flags=re.I).strip() or question
     if not question:
         return R.say(engine.lang, 'cmd_radio_check'), 'command'
     from .memory import REMEMBER_RE, FORGET_RE

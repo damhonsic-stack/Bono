@@ -48,7 +48,7 @@ T = {
         'regs_partial_on': 'Race control: partial mode, active aero omezené.',
         'regs_partial_off': 'Race control: full active aero zpět.',
         'regs_straight_low': 'Straight mode využíváš jen na {p} % aero zón.',
-        'regs_battery_low': 'Battery jen {p} %. Harvest, šetři deploy.',
+        'regs_battery_low': 'Battery jen {p} %. Nabíjej, šetři deploy.',
         'cmd_muted': 'Copy, budu potichu.',
         'cmd_unmuted': 'Copy, jsem zpátky.',
         'cmd_radio_check': 'Loud and clear.',
@@ -146,7 +146,12 @@ def tip_text(lang, tip):
 def corner_message(lang, item, level):
     cfg = LEVELS[level]
     tips = [tip_text(lang, t) for t in item.get('tips', [])[:cfg['tips']]]
-    msg = say(lang, 'corner_loss', name=item['name'], d=fmt_delta(item['loss'], lang))
+    ph = corner_phase(item)
+    if ph:
+        msg = say(lang, 'corner_phase', name=item['name'], d=fmt_delta(item['loss'], lang),
+                  phase=say(lang, 'phase_' + ph))
+    else:
+        msg = say(lang, 'corner_loss', name=item['name'], d=fmt_delta(item['loss'], lang))
     if tips:
         msg += ' ' + (', '.join(tips)).capitalize() + '.'
     return msg
@@ -292,6 +297,87 @@ INFRINGEMENTS = {
     34: 'Jump start', 36: 'Illegal overtake under safety car', 37: 'Exceeding safety car pace',
     38: 'Exceeding VSC pace', 52: 'Illegal time gain',
 }
+INFRINGEMENTS_CS = {
+    'Blocking by slow driving': 'blokování pomalou jízdou', 'Wrong way driving': 'jízda v protisměru',
+    'Big collision': 'velká kolize', 'Small collision': 'malá kolize',
+    'Collision, position not handed back': 'kolize a nevrácená pozice',
+    'Collision, positions not handed back': 'kolize a nevrácené pozice',
+    'Corner cutting gained time': 'zkracování zatáčky se ziskem času',
+    'Corner cutting overtake': 'předjetí mimo trať', 'Corner cutting overtakes': 'předjetí mimo trať',
+    'Crossed pit exit line': 'přejetí čáry na výjezdu z boxů', 'Ignoring blue flags': 'ignorování modrých vlajek',
+    'Ignoring yellow flags': 'ignorování žlutých vlajek', 'Pit lane speeding': 'rychlost v pit lane',
+    'Too many penalties': 'příliš mnoho trestů', 'Multiple warnings': 'opakovaná varování',
+    'Running wide, gained time': 'vyjetí z trati se ziskem času', 'Jump start': 'předčasný start',
+    'Illegal overtake under safety car': 'předjetí za safety carem', 'Exceeding safety car pace': 'moc rychle za safety carem',
+    'Exceeding VSC pace': 'moc rychle pod VSC', 'Illegal time gain': 'nedovolený zisk času',
+}
+
 DAMAGE_PARTS = {'fl_wing': 'Front left wing', 'fr_wing': 'Front right wing', 'rear_wing': 'Rear wing',
                 'floor': 'Floor', 'diffuser': 'Diffuser', 'sidepod': 'Sidepod',
                 'gearbox': 'Gearbox', 'engine': 'Engine'}
+
+
+# ---------------------------------------------------------------- styl „AI race engineer“: start, pozice,
+# povzbuzení, kvalifikační run debrief, poškození podle ztráty, nápověda, setup nabídka
+_EXT2 = {
+    'en': {
+        'lights_out': 'Lights out, go go go! Stay calm into turn one.',
+        'start_gain': 'Good start, P{pos}. You gained {n}.',
+        'start_loss': 'P{pos} after lap one, lost {n}. Plenty of time, stay calm.',
+        'start_same': 'P{pos} after lap one. Clean start.',
+        'overtake_done': 'Nice move, P{pos} now.',
+        'overtaken': 'Lost a place, P{pos}. Stay calm, we have the pace.',
+        'last_lap': 'Last lap. Bring it home.',
+        'finish': 'Chequered flag! P{pos}. {praise}',
+        'praise_top': 'Fantastic drive!', 'praise_ok': 'Good job.',
+        'encourage': 'Great pace, keep it up.',
+        'push_again': 'Another push lap. Go.',
+        'run_debrief': '{time}{pos}. {sectors}{corner}',
+        'run_sector': 'S{n} {d}',
+        'run_corner': ' Most time lost in {name}, {phase}.',
+        'phase_braking': 'on braking', 'phase_apex': 'at the apex', 'phase_exit': 'on exit',
+        'corner_phase': 'Losing {d} in {name}, mostly {phase}.',
+        'damage_box_measured': 'Front wing costs {x} a lap, {laps} laps left. Box for a new nose.',
+        'damage_stay_out': 'Front wing costs about {x} a lap. Not worth a stop, stay out.',
+        'setup_offer': 'Five clean laps done. If you want to work on the setup, say Bono, setup.',
+        'help': 'You can ask me: {q}.',
+        'help_race': 'when do I box, gap behind, tyres, who is ahead',
+        'help_quali': 'where am I losing time, sector times, tyre temps, battery',
+        'help_other': 'where am I losing time, setup advice, target time, tyres',
+    },
+    'cs': {
+        'lights_out': 'Zhasla světla, jedeš! V klidu do první zatáčky.',
+        'start_gain': 'Dobrý start, P{pos}. Získal jsi {n}.',
+        'start_loss': 'Po prvním kole P{pos}, ztratil jsi {n}. Času je dost, v klidu.',
+        'start_same': 'Po prvním kole P{pos}. Čistý start.',
+        'overtake_done': 'Pěkný manévr, jsi P{pos}.',
+        'overtaken': 'Ztratil jsi pozici, jsi P{pos}. V klidu, tempo máme.',
+        'last_lap': 'Poslední kolo. Dovez to domů.',
+        'finish': 'Cíl! P{pos}. {praise}',
+        'praise_top': 'Fantastická jízda!', 'praise_ok': 'Dobrá práce.',
+        'encourage': 'Skvělé tempo, takhle dál.',
+        'push_again': 'Další rychlé kolo. Jeď.',
+        'run_debrief': '{time}{pos}. {sectors}{corner}',
+        'run_sector': 'S{n} {d}',
+        'run_corner': ' Nejvíc ztrácíš v {name}, {phase}.',
+        'phase_braking': 'na brzdění', 'phase_apex': 've vrcholu zatáčky', 'phase_exit': 'na výjezdu',
+        'corner_phase': 'V {name} ztrácíš {d}, hlavně {phase}.',
+        'damage_box_measured': 'Křídlo tě stojí {x} na kolo a zbývá {laps} kol. Box na nový nos.',
+        'damage_stay_out': 'Křídlo tě stojí asi {x} na kolo. Zastávka se nevyplatí, zůstaň venku.',
+        'setup_offer': 'Máš pět čistých kol. Jestli chceš doladit setup, řekni Bono, setup.',
+        'help': 'Můžeš se zeptat: {q}.',
+        'help_race': 'kdy jedu do boxu, jaký je odstup za mnou, jak jsou na tom gumy, kdo je přede mnou',
+        'help_quali': 'kde ztrácím čas, jaké mám sektory, teploty gum, baterie',
+        'help_other': 'kde ztrácím čas, poraď se setupem, jaký je cílový čas, gumy',
+    },
+}
+for _lang, _d in _EXT2.items():
+    T[_lang].update(_d)
+
+PHASE_OF_TIP = {'brake_early': 'braking', 'overdrive': 'braking', 'min_speed': 'apex',
+                'gear': 'apex', 'throttle_late': 'exit', 'exit': 'exit'}
+
+
+def corner_phase(item):
+    tips = item.get('tips') or []
+    return PHASE_OF_TIP.get(tips[0][0]) if tips else None

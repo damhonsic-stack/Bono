@@ -145,8 +145,10 @@ class IncidentTests(unittest.TestCase):
         inc.on_damage(hit, True, 20)
         keys = [e[0] for e in inc.pop_events()]
         self.assertIn('damage', keys)
-        self.assertIn('damage_box_wing', keys)
+        self.assertNotIn('damage_box_wing', keys)     # 45 %: nejdřív se změří ztráta na kolo
         self.assertIn('puncture', keys)
+        inc.on_damage(dict(hit, fl_wing=70), True, 20)
+        self.assertIn('damage_box_wing', [e[0] for e in inc.pop_events()])   # vážné → hned
 
     def test_yellow_flag_ahead(self):
         inc = Incidents()
@@ -349,7 +351,7 @@ class RadioModeTests(unittest.TestCase):
         texts = [t for _, _, t in log]
         self.assertFalse(any(t.startswith(('Lap 0', 'Losing', 'Gap ahead', 'You only used',
                                            'Overtake mode available')) for t in texts), texts)
-        for must in ('Box this lap', 'Safety car', '5 second penalty', 'Front wing damage'):
+        for must in ('Box this lap', 'Safety car', '5 second penalty', 'wing damage 45'):
             self.assertTrue(any(must in t for t in texts), must)
         _, full = race_log(laps=20, pit_lap=12, sc_lap=6, damage_lap=4, penalty_lap=8)
         self.assertLess(len(log), len(full) / 2)
@@ -458,3 +460,65 @@ class CloudSyncTests(unittest.TestCase):
         self.assertIn('jezdím s ABS off', e.context_for_llm()['bono_memory']['driver_notes'][-1])
         llm.answer(e, 'Bono, zapomeň')
         self.assertEqual(e.memory.data['notes'], [])
+
+
+class EngineerStyleTests(unittest.TestCase):
+    def test_quali_push_lap_silence_and_run_debrief(self):
+        e = Engine(Storage(tempfile.mkdtemp()))
+        e.settings.update(lang='en', radio_mode='quiet')
+        log = []
+        orig = e.say
+
+        def say(text, prio=1, urgent=False):
+            me = e.lap[e.player]
+            log.append((me['driver_status'] if me else -1, text))
+            orig(text, prio, urgent)
+        e.say = say
+        for _, p in SIM.generate('quali', laps=8, ai=90, seed=5, fmt=2026):
+            e.handle(p)
+        debriefs = [(ds, t) for ds, t in log if ' S1 ' in t or t.startswith(('Lap 0', 'Personal best')) and 'S1' in t]
+        self.assertTrue(debriefs, log)
+        self.assertTrue(all(ds != 1 for ds, _ in debriefs))          # nikdy během rychlého kola
+        self.assertTrue(any('S2' in t and 'S3' in t for _, t in debriefs))
+        self.assertFalse(any(t.startswith('Losing') for _, t in log))
+
+    def test_race_start_overtakes_finish(self):
+        e, log = race_log(laps=6, pit_lap=None, radio_mode='quiet')
+        texts = [t for _, _, t in log]
+        self.assertTrue(any(t.startswith(('Good start', 'P', 'Clean start')) and 'lap one' in t or
+                            t.startswith('Good start') for t in texts), texts)
+        self.assertTrue(any(t.startswith('Last lap') for t in texts))
+        self.assertTrue(any(t.startswith('Chequered flag') for t in texts))
+        pk = SIM.Packer(2026, e.session_uid)
+        e.handle(pk.event('OVTK', 1.0, 1, bytes([0, 3])))
+        self.assertIn('Nice move', e.messages[-1]['text'])
+
+    def test_measured_wing_damage_call(self):
+        e, log = race_log(laps=20, pit_lap=None, damage_lap=4, radio_mode='quiet')
+        texts = [t for _, _, t in log]
+        self.assertTrue(any('wing costs' in t.lower() or 'front wing' in t.lower() for t in texts), texts)
+
+    def test_help_and_radio_wake_word(self):
+        from engineer import voice_mac as V
+        e, _ = race_log(laps=3)
+        text, _ = llm.answer(e, 'Bono, what can I ask you?')
+        self.assertIn('when do I box', text)
+        w = V.WakeLogic('bono')
+        self.assertEqual(w.handle('Rádio, jaký je odstup?')[0], 'ask')
+        self.assertEqual(w.handle('Radio gap behind')[0], 'ask')
+
+    def test_persona_in_prompt_and_standings(self):
+        e, _ = race_log(laps=4)
+        e.settings.update(gemini_key='k', persona='kouc')
+        bodies = []
+        orig = llm._post
+        llm._post = lambda url, body, key, t: bodies.append(body) or {'candidates': [{'content': {'parts': [{'text': 'OK.'}]}}]}
+        try:
+            llm.answer(e, 'how am I doing?')
+        finally:
+            llm._post = orig
+            llm.PERSONA['name'] = 'bono'
+        self.assertIn('strict coach', bodies[0]['systemInstruction']['parts'][0]['text'])
+        st = e.snapshot()['standings']
+        self.assertEqual([r['pos'] for r in st], sorted(r['pos'] for r in st))
+        self.assertTrue(any(r['me'] for r in st))

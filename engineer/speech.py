@@ -8,6 +8,9 @@ import re
 
 # anglické F1 pojmy → jak je přirozeně řekne český inženýr (delší fráze první)
 CS_TERMS = [
+    ('Front left wing', 'Levá strana předního křídla'), ('Front right wing', 'Pravá strana předního křídla'),
+    ('Rear wing', 'Zadní křídlo'), ('Front wing', 'Přední křídlo'),
+    ('Drž delta kladnou', 'Drž deltu kladnou'), ('v lapu', 'v kole'), ('šetři deploy', 'šetři baterii'),
     ('Box this lap, box box', 'Box, box. Tohle kolo jdeš do boxu'),
     ('box box', 'box, box'), ('Box next lap', 'Příští kolo do boxu'),
     ('Radio check', 'Zkouška spojení'), ('Loud and clear', 'Slyším tě dobře'),
@@ -38,8 +41,7 @@ CS_TERMS = [
     ('Pit window', 'Okno pro zastávku'), ('pit stop', 'zastávka'),
     ('front left', 'přední levá'), ('front right', 'přední pravá'),
     ('rear left', 'zadní levá'), ('rear right', 'zadní pravá'),
-    ('Front left wing', 'Levá strana předního křídla'), ('Front right wing', 'Pravá strana předního křídla'),
-    ('Front wing', 'Přední křídlo'), ('Rear wing', 'Zadní křídlo'), ('damage', 'poškození'),
+    ('damage', 'poškození'),
     ('Intermediate', 'přechodové'), ('Wet', 'mokré'), ('Lap invalid', 'Kolo neplatné'),
     ('tyres', 'gumy'), ('Tyres', 'Gumy'), ('gap', 'odstup'), ('Race', 'Závod'),
     ('laps', 'kol'), ('lapů', 'kol'), ('za lap', 'za kolo'), ('lapu', 'kola'), ('lap', 'kolo'),

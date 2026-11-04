@@ -33,6 +33,7 @@ class Quali:
 
     def reset(self):
         self.prev_status = None
+        self.prev_lap = None
         self.lap_key = None
         self.temps_called = False
         self.traffic_called = False
@@ -51,6 +52,10 @@ class Quali:
         status = me['driver_status']
         prev = self.prev_status
         self.prev_status = status
+        prev_lap, self.prev_lap = self.prev_lap, me['lap_num']
+        if prev == FLYING and status == FLYING and prev_lap is not None and me['lap_num'] == prev_lap + 1 \
+                and session.get('session_type') != 18:
+            self.events.append(('push_again', {}, True))      # další rychlé kolo hned po předchozím
         key = (me['lap_num'], status)
         if key != self.lap_key:
             self.lap_key = key

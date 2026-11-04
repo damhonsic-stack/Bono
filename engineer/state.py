@@ -42,6 +42,13 @@ RADIO_QUIET = {
     'regs_ot_enabled', 'regs_ot_disabled', 'regs_partial_on', 'regs_partial_off',
     'regs_battery_low', 'fuel_low', 'tyre_wear_high', 'gap_closing_close', 'gap_behind_close',
 }
+RADIO_QUIET |= {'lights_out', 'start_gain', 'start_loss', 'start_same', 'overtake_done', 'overtaken',
+                'last_lap', 'finish', 'encourage', 'push_again', 'run_debrief', 'damage_box_measured',
+                'damage_stay_out', 'setup_offer', 'clear_air'}
+# smí zaznít i během rychlého kola v kvalifikaci
+RADIO_URGENT = {'push_again', 'yellow_ahead', 'car_behind_push', 'red_flag', 'penalty_time', 'penalty_dt',
+                'penalty_sg', 'penalty_other', 'sc_deployed', 'vsc_deployed', 'puncture', 'damage_box_wing',
+                'blue_flag', 'time_left'}
 RADIO_NORMAL = {
     'lap', 'invalid', 'corner', 'gap_closing', 'gap_losing', 'gap_behind_closing', 'gap_behind_dropping',
     'track_limits', 'warning', 'plan', 'regs_ot_available', 'regs_straight_low', 'out_lap',
@@ -131,6 +138,11 @@ class Engine:
         self.session_started = time.time()
         self.debrief_done = False
         self.lap_driver_status = {}   # lap_num -> driver status během lapu (out/in/flying)
+        self.pending_run_debrief = None   # kvalifikace: rozbor po rychlém kole (řekne se na in lapu)
+        self.race_flags = set()           # jednorázová hlášení (start, poslední kolo, cíl, setup…)
+        self.last_encourage_lap = -99
+        self.wing = None                  # měření ztráty kvůli poškozenému křídlu
+        self.prev_position = None
 
     def _load_track(self, track_id):
         self.track_id = track_id
@@ -309,6 +321,17 @@ class Engine:
             self._end_session()
         elif code == 'BUTN':
             self._on_buttons(ev['buttons'])
+        elif code == 'LGOT' and self._is_race():
+            self._say_key('lights_out', urgent=True)
+        elif code == 'OVTK' and self._is_race():
+            me = self.lap[self.player] if self.player < len(self.lap) else None
+            pos = me['position'] if me else None
+            if ev.get('overtaker') == self.player and pos:
+                self._say_key('overtake_done', pos=max(1, pos - 1) if self.prev_position == pos else pos)
+            elif ev.get('overtaken') == self.player and pos:
+                self._say_key('overtaken', pos=pos + 1 if self.prev_position == pos else pos)
+        elif code == 'CHQF' and self._is_race():
+            self._finish_call()
         else:
             self.regs.on_event(code)
             self._flush_regs_events()
@@ -361,6 +384,10 @@ class Engine:
 
     def _on_history(self, h):
         car = h['car']
+        c = self.opponents.car(car)
+        c.stints = [s['visual'] for s in h.get('stints', [])]
+        valid = [l['lap_ms'] for l in h['laps'] if l['lap_ms'] and l['valid_flags'] & 1]
+        c.best_ms = min(valid) if valid else None
         if car == self.player or not self.participants or car >= len(self.participants):
             return
         if not self.participants[car]['ai']:
@@ -537,6 +564,17 @@ class Engine:
         if prep_lap:
             # out lap / in lap v kvalifikaci a tréninku: čas ani zatáčky nehlásíme
             return
+        lap.meta['is_pb'] = is_pb
+        if (st in QUALI or st == TIME_TRIAL) and lap_kind == 1 and lap.valid:
+            # jako skutečný engineer: na push lapu ticho, rozbor po sektorech až potom
+            text = self._quali_run_debrief(lap, ref_before, compare)
+            if st == TIME_TRIAL:            # TT: kola jdou za sebou → rozbor hned
+                if self.radio_ok('run_debrief'):
+                    self.say(text, prio=2)
+            else:
+                self.pending_run_debrief = text
+            self._setup_offer_check()
+            return
         if not lap.valid:
             msgs.append(('invalid', R.say(lang, 'invalid')))
         if is_pb:
@@ -591,18 +629,134 @@ class Engine:
         for key, m in msgs:
             if self.radio_ok(key):
                 self.say(m)
+        if st in RACE:
+            self._race_flow_calls(lap)
+            self._wing_damage_check(lap)
+        else:
+            self._setup_offer_check()
+
+    def _setup_offer_check(self):
+        st = self.session.get('session_type')
+        if st in RACE:
+            return
+        clean = [l for l in self.player_laps if l.valid and l.clean and l.meta.get('kind') not in ('in', 'out')]
+        if len(clean) >= 5 and self._once('setup_offer'):
+            self._say_key('setup_offer')
 
     # ------------------------------------------------------------------ rádio: co se říká nahlas
     def radio_mode(self):
         return self.settings.get('radio_mode', 'quiet')
 
+    def push_lap_silence(self):
+        """Kvalifikace: na rychlém kole Bono mlčí (kromě urgentních věcí)."""
+        st = self.session.get('session_type')
+        me = self.lap[self.player] if self.player < len(self.lap) else None
+        return bool(me) and st in QUALI and me['driver_status'] == 1
+
     def radio_ok(self, key):
+        if self.push_lap_silence() and key not in RADIO_URGENT:
+            return False
         mode = self.radio_mode()
         if mode == 'full':
             return True
         if key in RADIO_QUIET:
             return True
         return mode == 'normal' and key in RADIO_NORMAL
+
+    def _say_key(self, key, urgent=False, prio=1, **kw):
+        if self.radio_ok(key):
+            self.say(R.say(self.lang, key, **kw), prio=prio, urgent=urgent)
+
+    def _once(self, flag):
+        if flag in self.race_flags:
+            return False
+        self.race_flags.add(flag)
+        return True
+
+    def _finish_call(self):
+        me = self.lap[self.player] if self.player < len(self.lap) else None
+        if not me or not self._once('finish'):
+            return
+        pos = me['position']
+        praise = R.say(self.lang, 'praise_top' if pos <= 3 or pos < (me.get('grid') or 99) else 'praise_ok')
+        self._say_key('finish', prio=2, pos=pos, praise=praise)
+
+    def _race_flow_calls(self, lap):
+        """Hlášení jako od skutečného engineera: výsledek startu, poslední kolo, povzbuzení, cíl."""
+        me = self.lap[self.player]
+        if not me:
+            return
+        tl = self.session.get('total_laps') or 0
+        pos = me['position']
+        if lap.lap_num == 1 and self._once('start'):
+            grid = me.get('grid') or pos
+            if grid and pos < grid:
+                self._say_key('start_gain', pos=pos, n=grid - pos)
+            elif grid and pos > grid:
+                self._say_key('start_loss', pos=pos, n=pos - grid)
+            else:
+                self._say_key('start_same', pos=pos)
+        if tl and me['lap_num'] == tl and self._once('last_lap'):
+            self._say_key('last_lap')
+        if tl and lap.lap_num >= tl:
+            self._finish_call()
+        # povzbuzení: 3 čistá kola do 0,3 % od nejlepšího, max jednou za 6 kol
+        clean = [l.lap_ms for l in self.player_laps[-3:] if l.valid and not l.meta.get('pitted')]
+        best = self.session_best.lap_ms if self.session_best else None
+        if len(clean) == 3 and best and max(clean) <= best * 1.003 and \
+                lap.lap_num - self.last_encourage_lap >= 6 and lap.lap_num < tl:
+            self.last_encourage_lap = lap.lap_num
+            self._say_key('encourage')
+
+    def _wing_damage_check(self, lap):
+        """Box kvůli křídlu jen když se to vyplatí: změří ztrátu na kolo proti tempu před poškozením."""
+        dmg = self.damage[self.player] if self.player < len(self.damage) else None
+        if not dmg:
+            return
+        front = max(dmg.get('fl_wing', 0), dmg.get('fr_wing', 0))
+        if front < 15:
+            self.wing = None
+            return
+        if self.wing is None:
+            before = [l.lap_ms for l in self.player_laps[-5:-1] if l.valid and not l.meta.get('pitted')]
+            self.wing = {'from_lap': lap.lap_num, 'pace': sum(before) / len(before) if before else None,
+                         'laps': [], 'called': False}
+            return
+        w = self.wing
+        if w['called'] or not w['pace']:
+            return
+        if lap.valid and not lap.meta.get('pitted'):
+            w['laps'].append(lap.lap_ms)
+        if len(w['laps']) >= 2:
+            loss = sum(w['laps']) / len(w['laps']) - w['pace']
+            left = self._laps_left() or 0
+            w['called'] = True
+            if loss > 150 and loss * left > self._pit_loss() + 2000:
+                self._say_key('damage_box_measured', urgent=True, x=R.fmt_delta(loss, self.lang), laps=left)
+            elif loss > 100:
+                self._say_key('damage_stay_out', x=R.fmt_delta(loss, self.lang))
+
+    def _quali_run_debrief(self, lap, ref, compare):
+        """Rozbor rychlého kola po sektorech + hlavní ztráta (řekne se až na in lapu)."""
+        lang = self.lang
+        parts = []
+        if ref and ref.sectors and all(ref.sectors) and all(lap.sectors):
+            for i in range(3):
+                parts.append(R.say(lang, 'run_sector', n=i + 1,
+                                   d=R.fmt_delta(lap.sectors[i] - ref.sectors[i], lang, signed=True)))
+        corner = ''
+        if compare:
+            worst = max(compare, key=lambda c: c['loss'])
+            ph = R.corner_phase(worst)
+            if worst['loss'] >= 40 and ph:
+                corner = R.say(lang, 'run_corner', name=worst['name'], phase=R.say(lang, 'phase_' + ph))
+        me = self.lap[self.player]
+        pos = (', P%d' % me['position']) if me and me['position'] and \
+            self.session.get('session_type') in QUALI else ''
+        sectors = (', '.join(parts) + '.') if parts else ''
+        time_txt = R.say(lang, 'pb', time=R.fmt_lap(lap.lap_ms)).rstrip('.') if \
+            lap.meta.get('is_pb') else R.say(lang, 'lap', time=R.fmt_lap(lap.lap_ms)).rstrip('.')
+        return R.say(lang, 'run_debrief', time=time_txt, pos=pos, sectors=sectors, corner=corner)
 
     # ------------------------------------------------------------------ nové moduly
     def _is_race(self):
@@ -687,6 +841,12 @@ class Engine:
         me = self.lap[self.player] if self.player < len(self.lap) else None
         if not me:
             return
+        if self.pending_run_debrief and me['driver_status'] != 1:
+            text, self.pending_run_debrief = self.pending_run_debrief, None
+            if self.radio_ok('run_debrief'):
+                self.say(text, prio=2)
+        if self.prev_position is None or me['position'] != self.prev_position:
+            self.prev_position = me['position']
         self.opponents.update(self.lap, self.status, self.player)
         self.incidents.on_lap(me)
         self.incidents.on_position(me['lap_distance'], self.session)
@@ -756,6 +916,8 @@ class Engine:
                     kw[k] = R.fmt_delta(kw[k], lang)
             if 'car' in kw and 'name' not in kw:
                 kw['name'] = self.names().get(kw['car'], '?')
+            if lang == 'cs' and kw.get('why') in R.INFRINGEMENTS_CS:
+                kw['why'] = R.INFRINGEMENTS_CS[kw['why']].capitalize()
             if key == 'puncture':
                 kw['wheel'] = R.WHEEL_NAMES[lang][['RL', 'RR', 'FL', 'FR'][kw.pop('wheel_idx')]]
             if key == 'out_lap':
@@ -852,6 +1014,23 @@ class Engine:
         live = [(k, v) for k, v in self.presence.items() if now - v[0] < 12]
         return {'count': len(live), 'mic': sum(1 for _, v in live if v[1]),
                 'names': [v[2] for _, v in live]}
+
+    def standings(self):
+        names = self.names()
+        out = []
+        for i, l in enumerate(self.lap):
+            if not l or l['result_status'] not in (2, 3):
+                continue
+            c = self.opponents.cars.get(i)
+            out.append({'pos': l['position'], 'name': names.get(i, 'Car %d' % (i + 1)), 'me': i == self.player,
+                        'gap': l['delta_leader_ms'], 'interval': l['delta_front_ms'] if l['position'] > 1 else 0,
+                        'tyre': VISUAL_COMPOUND.get(c.compound, '?') if c else '?',
+                        'age': c.age if c else None, 'pits': l['num_pit_stops'],
+                        'stints': [VISUAL_COMPOUND.get(v, '?')[0] for v in (getattr(c, 'stints', None) or [])],
+                        'last': l['last_lap_ms'], 'best': getattr(c, 'best_ms', None) if c else None,
+                        'in_pit': bool(l['pit_status']), 'grid': l['grid']})
+        out.sort(key=lambda r: r['pos'])
+        return out
 
     def snapshot_theoretical(self):
         traces = [l.trace for l in self.player_laps if l.valid and l.clean]
@@ -1087,6 +1266,7 @@ class Engine:
                 'heard': self.heard, 'voice_status': self.voice_status,
                 'strategy': self.strategy_snapshot(),
                 'around': self.opponents.around(self.lap, self.player, self.names()),
+                'standings': self.standings(),
                 'incidents': self.incidents.summary(me, self.damage[self.player]
                                                     if self.player < len(self.damage) else None),
                 'weather': self.weather_snapshot(),
@@ -1133,7 +1313,7 @@ class Engine:
             allowed = {'lang', 'level', 'reference', 'difficulty_override', 'voice',
                        'gemini_key', 'gemini_model', 'engineer_name', 'wake_word', 'buttons',
                        'voice_engine', 'tts_voice', 'groq_key', 'groq_model', 'chat_model',
-                       'radio_mode', 'cloud_url', 'cloud_code'}
+                       'radio_mode', 'cloud_url', 'cloud_code', 'persona', 'wake_radio'}
             for k, v in new.items():
                 if k in allowed:
                     if k in ('gemini_key', 'groq_key', 'cloud_code') and v == '***':

@@ -31,6 +31,8 @@ FRAME = 480                      # 30 ms
 WHISPER_MODEL = 'mlx-community/whisper-large-v3-turbo'
 VOICES = {'cs': 'cs-CZ-AntoninNeural', 'en': 'en-GB-RyanNeural'}
 FALLBACK_SAY = {'cs': 'Zuzana', 'en': 'Daniel'}
+PERSONA_VOICES = {('cs', 'vlasta'): 'cs-CZ-VlastaNeural', ('en', 'vlasta'): 'en-GB-SoniaNeural',
+                  ('cs', 'kouc'): 'cs-CZ-AntoninNeural', ('en', 'kouc'): 'en-GB-ThomasNeural'}
 PROMPTS = {
     'cs': ('Bono, box, boxuju, gap, undercut, overcut, pneumatiky, gumy, soft, medium, hard, '
            'intermediate, palivo, baterie, overtake, DRS, safety car, strategie, zastávka, lap, '
@@ -48,12 +50,14 @@ def normalize(text):
     return re.sub(r'\s+', ' ', t).strip()
 
 
-def wake_regex(wake='bono'):
+def wake_regex(wake='bono', radio=True):
     w = normalize(wake)
     if w == 'bono':
         variants = r'b[ou]+n+[oaeiuy]{1,2}[a-z]{0,2}|buono|bueno|bone ?oh?|bo no|vono'
     else:
         variants = re.escape(w)
+    if radio:                       # jako v rádiu: „Rádio, jaký je odstup?“
+        variants += r'|radi[oa]|radijo|ready ?o'
     return re.compile(r'\b(?:hej |hey |ok |hele )?(?:%s)\b[\s,.!?:-]*' % variants)
 
 
@@ -62,8 +66,8 @@ class WakeLogic:
     FILLER = {'', 'ok', 'okay', 'jo', 'jasne', 'diky', 'dik', 'ne', 'ano', 'yeah', 'thanks', 'hm',
               'hmm', 'aha', 'copy'}
 
-    def __init__(self, wake='bono', clock=time.time):
-        self.re = wake_regex(wake)
+    def __init__(self, wake='bono', clock=time.time, radio=True):
+        self.re = wake_regex(wake, radio)
         self.armed_until = 0.0
         self.clock = clock
 
@@ -162,7 +166,9 @@ class MacVoice:
         self.text_q = queue.Queue()
         self.loop = asyncio.new_event_loop()
         self.last_msg_id = None
-        self.wake = WakeLogic(engine.settings.get('wake_word', 'bono'))
+        self.wake = WakeLogic(engine.settings.get('wake_word', 'bono'),
+                              radio=engine.settings.get('wake_radio', True))
+        self.listen_seq = engine.listen_seq
         self.status = 'starting'
 
     # ------------------------------------------------------------ start
@@ -187,11 +193,19 @@ class MacVoice:
         threading.Thread(target=self._heartbeat, daemon=True).start()
 
     def _heartbeat(self):
+        n = 0
         while True:
             with self.engine.lock:
-                self.engine.heartbeat('mac-voice', self.status == 'listening', 'Mac')
-                self.engine.voice_status = self.status
-            time.sleep(4)
+                seq = self.engine.listen_seq
+                if n % 20 == 0:
+                    self.engine.heartbeat('mac-voice', self.status == 'listening', 'Mac')
+                    self.engine.voice_status = self.status
+            if seq != self.listen_seq:        # Talk v aplikaci nebo tlačítko na ovladači
+                self.listen_seq = seq
+                self.wake.armed_until = time.time() + ARM_SECONDS
+                self._beep()
+            n += 1
+            time.sleep(0.2)
 
     # ------------------------------------------------------------ poslech
     def _listener(self):
@@ -268,7 +282,9 @@ class MacVoice:
         await edge_tts.Communicate(text, voice, rate='+8%').save(path)
 
     def _synth(self, text, lang):
-        voice = self.engine.settings.get('mac_voice_%s' % lang) or VOICES.get(lang, VOICES['en'])
+        persona = self.engine.settings.get('persona', 'bono')
+        voice = self.engine.settings.get('mac_voice_%s' % lang) or \
+            PERSONA_VOICES.get((lang, persona)) or VOICES.get(lang, VOICES['en'])
         path = os.path.join(self.tmp, 'm%d.mp3' % random.randint(0, 1 << 30))
         fut = asyncio.run_coroutine_threadsafe(self._edge(text, voice, path), self.loop)
         return fut, path

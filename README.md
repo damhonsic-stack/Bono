@@ -44,6 +44,17 @@ Všechno je **zdarma**. Potřebuješ jen Python 3, bez dalších knihoven, bez M
 
 ---
 
+### Jak se Bono chová v závodě (styl skutečného pit wallu)
+- Na **„Bono, …“** nebo **„Rádio, …“** odpoví. Talk v aplikaci nebo tlačítko na ovladači spustí poslech.
+- **Kvalifikace:** na out lapu odstup na auto před tebou, **na rychlém kole ticho**, po kole rozbor
+  po sektorech („S1 plus tři setiny… nejvíc ztrácíš v zatáčce 4 na výjezdu“) a pozice. Pozná další
+  rychlé kolo.
+- **Závod:** start (získané a ztracené pozice), předjetí, box calls, safety car, penalizace s důvodem,
+  poškození křídla (box jen když se to podle naměřené ztráty vyplatí), povzbuzení, poslední kolo, cíl.
+- **„Co se můžu zeptat?“** nabídne otázky podle situace (i v záložce Engineer).
+- **Povaha engineera:** Bono (klidný), Vlasta (energická, ženský hlas), Kouč (přísný).
+- Po 5 čistých kolech v tréninku nebo TT nabídne úpravu setupu.
+
 ## Jak to funguje
 
 ```

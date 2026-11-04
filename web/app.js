@@ -89,6 +89,7 @@ function render() {
   if (s.listen_seq !== listenSeq) { listenSeq = s.listen_seq; Voice.listenNow(); }
   renderRegs(s);
   renderStrip(s);
+  renderSuggest(s);
   const cl = s.cloud || {};
   $('cloudStatus').textContent = !cl.enabled ? 'Cloud vypnutý' :
     `${cl.status === 'ok' ? '✅ synchronizováno' : cl.status === 'error' ? '⚠️ ' + (cl.error || 'chyba') : '⏳ ' + cl.status}` +
@@ -279,6 +280,16 @@ function renderStrategy(s) {
   $('wxNow').textContent = w.now ? `${w.now} · track ${w.track_temp}°C` : '–';
   $('wxForecast').innerHTML = (w.forecast || []).map((f) =>
     `<div class="${f.rain >= 40 ? 'rain' : ''}">+${f.min} min<br><b>${esc(f.weather || '?')}</b><br>${f.rain} %</div>`).join('');
+  // standings
+  $('standingsTable').querySelector('tbody').innerHTML = (s.standings || []).map((c) => `
+    <tr class="${c.me ? 'me' : ''}"><td>P${c.pos}${c.grid ? ` <span class="muted small">(${c.grid})</span>` : ''}</td>
+    <td>${esc(c.name)}${c.in_pit ? ' 🅿️' : ''}</td>
+    <td class="num">${c.pos === 1 ? 'Leader' : '+' + (c.gap / 1000).toFixed(1)}</td>
+    <td class="num">${c.pos === 1 ? '–' : '+' + (c.interval / 1000).toFixed(1)}</td>
+    <td>${c.tyre}${c.age !== null && c.age !== undefined ? ' ' + c.age : ''}</td>
+    <td class="mono">${(c.stints || []).join(' → ') || '–'}</td><td>${c.pits}</td>
+    <td class="num">${fmtLap(c.last)}</td><td class="num">${fmtLap(c.best)}</td></tr>`).join('')
+    || '<tr><td colspan="9" class="muted">Zatím žádná data.</td></tr>';
   // auta kolem
   $('aroundTable').querySelector('tbody').innerHTML = (s.around || []).map((c) => `
     <tr class="${c.me ? 'me' : ''}"><td>P${c.pos}</td><td>${esc(c.name)}${c.in_pit ? ' 🅿️' : ''}</td>
@@ -829,8 +840,9 @@ const Voice = {
   wakeRe() {
     const w = ((S && S.settings.wake_word) || 'bono').toLowerCase().replace(/[^a-z0-9áéíóúůýčďěňřšťž ]/g, '');
     // rozpoznávání často slyší „Bonnie“, „bone oh“, „bueno“… → bereme podobná slova
-    const variants = w === 'bono'
-      ? 'b[ou]n+[aeiouy]{1,2}[a-z]{0,3}|bone ?oh?|bo no|buono|bueno|bonneau|bonó|volno' : w;
+    const variants = (w === 'bono'
+      ? 'b[ou]n+[aeiouy]{1,2}[a-z]{0,3}|bone ?oh?|bo no|buono|bueno|bonneau|bonó|volno' : w) +
+      (S && S.settings.wake_radio === false ? '' : '|r[aá]di[oa]');
     return new RegExp('\\b(?:hey |ok )?(?:' + variants + ')\\b[,.!? ]*', 'i');
   },
   supported() { return !!SR; },
@@ -989,6 +1001,31 @@ if (!SR || !window.isSecureContext) {
   $('micHint').classList.remove('hidden');
 }
 
+// ------------------------------------------------------------------ „Co se můžu zeptat?“ podle situace
+let lastSuggestKey = '';
+function renderSuggest(s) {
+  const st = s.session && s.session.type_id;
+  const race = [15, 16, 17].includes(st), quali = st >= 5 && st <= 14;
+  const q = [];
+  if (race) {
+    q.push('Kdy jedu do boxu?', 'Jaký je odstup za mnou?', 'Kdo je přede mnou a na jakých gumách?');
+    if (s.race && s.race.tyres && s.race.tyres.max_wear > 30) q.push('Vydrží gumy do konce?');
+    if (s.weather && (s.weather.forecast || []).some((f) => f.rain >= 40)) q.push('Bude pršet?');
+    if (s.incidents && s.incidents.damage && Object.keys(s.incidents.damage).length) q.push('Jak velké je poškození?');
+    if (s.regs && s.regs.active) q.push('Jak je na tom baterie?');
+  } else if (quali) {
+    q.push('Kde ztrácím čas?', 'Jaké mám sektory proti rekordu?', 'Jaké mám teploty gum?', 'Kolik zbývá času?');
+  } else {
+    q.push('Kde ztrácím čas?', 'Poraď se setupem', 'Jaký je cílový čas pro moji obtížnost?', 'Jak jsou na tom gumy?');
+  }
+  q.push('Status report');
+  const key = q.join('|');
+  if (key === lastSuggestKey) return;
+  lastSuggestKey = key;
+  $('suggest').innerHTML = q.map((x) => `<button data-q="${esc(x)}">${esc(x)}</button>`).join('');
+  $('suggest').querySelectorAll('button').forEach((b) => { b.onclick = () => ask(b.dataset.q); });
+}
+
 // ------------------------------------------------------------------ chat
 function addBubble(text, who) {
   const d = document.createElement('div');
@@ -1081,6 +1118,8 @@ function fillSettings(s) {
   $('sWake').value = st.wake_word || 'bono';
   $('sVoiceEngine').value = st.voice_engine || 'mixed';
   $('sRadioMode').value = st.radio_mode || 'quiet';
+  $('sPersona').value = st.persona || 'bono';
+  $('sWakeRadio').checked = st.wake_radio !== false;
   $('sCloudUrl').value = st.cloud_url || '';
   $('sCloudCode').value = s.has_cloud_code ? '***' : '';
   $('sTtsVoice').value = st.tts_voice || 'Charon';
@@ -1094,7 +1133,7 @@ $('saveBtn').onclick = async () => {
     gemini_key: $('sKey').value.trim(), gemini_model: $('sModel').value.trim() || 'gemini-flash-lite-latest',
     engineer_name: $('sName').value.trim() || 'Bono', wake_word: ($('sWake').value.trim() || 'bono').toLowerCase(),
     voice_engine: $('sVoiceEngine').value, tts_voice: $('sTtsVoice').value,
-    radio_mode: $('sRadioMode').value,
+    radio_mode: $('sRadioMode').value, persona: $('sPersona').value, wake_radio: $('sWakeRadio').checked,
     cloud_url: $('sCloudUrl').value.trim(), cloud_code: $('sCloudCode').value.trim(),
     groq_key: $('sGroq').value.trim(),
   };
