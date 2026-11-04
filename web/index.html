@@ -284,6 +284,12 @@
       <label>AI difficulty pro target lap time
         <input id="sAi" type="number" min="0" max="110" placeholder="auto (ze hry)"></label>
       <label class="check"><input id="sVoice" type="checkbox"> Team radio hlasem</label>
+      <label>Kolik Bono mluví sám od sebe
+        <select id="sRadioMode">
+          <option value="quiet">Tiché: jen důležité (box, vlajky, safety car, penalty, rekord, nebezpečí)</option>
+          <option value="normal">Normální: + lap times, gapy a jedna rada k zatáčce</option>
+          <option value="full">Vše: každé kolo všechno</option>
+        </select></label>
       <label>Hlas Bona
         <select id="sVoiceEngine">
           <option value="mixed">Mixed: odpovědi na tvoje otázky realistickým Gemini hlasem, hlášení iOS</option>

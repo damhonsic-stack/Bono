@@ -11,6 +11,7 @@ DEFAULT_SETTINGS = {
     'buttons': {'1': 'listen', '2': 'status', '3': 'corners', '4': 'tyres',
                 '5': 'gaps', '6': 'fuel', '7': 'repeat', '8': 'mute',
                 '9': 'strategy', '10': 'damage', '11': 'setup', '12': 'debrief'},
+    'radio_mode': 'quiet',   # quiet = jen důležité, normal = + lap times a gapy, full = vše
     'level': 2,              # 1 nováček, 2 pokročilý, 3 pro
     'reference': 'auto',     # auto | session_best | pb | ai_best | tt_rival
     'difficulty_override': None,  # None = vezmi obtížnost ze hry

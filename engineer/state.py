@@ -18,6 +18,7 @@ from .quali import Quali, track_gaps
 from .setup import SetupAnalyzer
 from .tts import GeminiTTS
 from .constants import VISUAL_COMPOUND
+from .speech import to_speech
 
 REF_NAMES = {
     'cs': {'session_best': 'Session best', 'pb': 'Personal best',
@@ -26,6 +27,24 @@ REF_NAMES = {
     'en': {'session_best': 'Session best', 'pb': 'Personal best',
            'ai_best': 'Fastest AI', 'tt_rival': 'Time Trial rival', 'tt_pb': 'Time Trial ghost (PB)',
            None: 'none'},
+}
+
+
+# Tiché rádio (výchozí): jen to, co by řekl skutečný inženýr v závodě. Na zbytek se zeptáš.
+RADIO_QUIET = {
+    'pb', 'provisional', 'box_this_lap', 'box_next_lap', 'sc_box', 'vsc_box', 'pit_window',
+    'opp_pitted_ahead', 'opp_pitted_behind', 'opp_behind_fresh', 'undercut_on',
+    'rain_coming', 'rain_now_slicks', 'drying', 'track_limits_many', 'penalty_time', 'penalty_dt',
+    'penalty_sg', 'penalty_other', 'blue_flag', 'yellow_ahead', 'sc_deployed', 'vsc_deployed',
+    'sc_in', 'green', 'red_flag', 'contact', 'damage', 'damage_box_wing', 'puncture', 'fault',
+    'push_now', 'traffic_close', 'car_behind_push', 'time_left', 'regs_ot_behind',
+    'regs_ot_enabled', 'regs_ot_disabled', 'regs_partial_on', 'regs_partial_off',
+    'regs_battery_low', 'fuel_low', 'tyre_wear_high', 'gap_closing_close', 'gap_behind_close',
+}
+RADIO_NORMAL = {
+    'lap', 'invalid', 'corner', 'gap_closing', 'gap_losing', 'gap_behind_closing', 'gap_behind_dropping',
+    'track_limits', 'warning', 'plan', 'regs_ot_available', 'regs_straight_low', 'out_lap',
+    'tyre_temps', 'clear_air', 'tyre_wear', 'target',
 }
 
 
@@ -146,14 +165,15 @@ class Engine:
 
     def say(self, text, prio=1, urgent=False):
         self.msg_id += 1
-        self.messages.append({'id': self.msg_id, 'text': text, 'prio': prio,
+        speech = to_speech(text, self.lang)
+        self.messages.append({'id': self.msg_id, 'text': text, 'speech': speech, 'prio': prio,
                               'urgent': bool(urgent), 'ts': time.time()})
         self.messages = self.messages[-40:]
         eng = self.settings.get('voice_engine', 'mixed')
         key = self.settings.get('gemini_key')
         # mixed: realistický hlas jen pro odpovědi na otázky (prio >= 2); gemini: vše neurgentní
         if key and not urgent and (eng == 'gemini' or (eng == 'mixed' and prio >= 2)):
-            self.tts.prefetch(key, text, self.settings.get('tts_voice', 'Charon'), self.lang)
+            self.tts.prefetch(key, speech, self.settings.get('tts_voice', 'Charon'), self.lang)
 
     def names(self):
         out = {}
@@ -333,7 +353,8 @@ class Engine:
             if key == 'ot_available':
                 me = self.lap[self.player]
                 kw['g'] = R.fmt_delta(me['delta_front_ms'], self.lang) if me else '?'
-            self.say(R.say(self.lang, 'regs_' + key, **kw), prio=1)
+            if self.radio_ok('regs_' + key):
+                self.say(R.say(self.lang, 'regs_' + key, **kw), prio=1)
 
     def _on_history(self, h):
         car = h['car']
@@ -514,9 +535,9 @@ class Engine:
             # out lap / in lap v kvalifikaci a tréninku: čas ani zatáčky nehlásíme
             return
         if not lap.valid:
-            msgs.append(R.say(lang, 'invalid'))
+            msgs.append(('invalid', R.say(lang, 'invalid')))
         if is_pb:
-            msgs.append(R.say(lang, 'pb', time=R.fmt_lap(lap.lap_ms)))
+            msgs.append(('pb', R.say(lang, 'pb', time=R.fmt_lap(lap.lap_ms))))
         else:
             m = R.say(lang, 'lap', time=R.fmt_lap(lap.lap_ms))
             if ref_before and lap.valid and 'delta' in lap.meta and not race_lap1:
@@ -524,25 +545,26 @@ class Engine:
                 if abs(d) >= 5:
                     m += ' ' + R.say(lang, 'lap_delta_slow' if d > 0 else 'lap_delta_fast',
                                      d=R.fmt_delta(d, lang))
-            msgs.append(m)
+            msgs.append(('lap', m))
         if compare and lap.valid and not race_lap1:
             worst = sorted(compare, key=lambda c: -c['loss'])
             n = 0
+            max_c = cfg['corners'] if self.radio_mode() == 'full' else 1
             for c in worst:
-                if c['loss'] < cfg['corner_min_loss'] or n >= cfg['corners']:
+                if c['loss'] < cfg['corner_min_loss'] or n >= max_c:
                     break
-                msgs.append(R.corner_message(lang, c, level))
+                msgs.append(('corner', R.corner_message(lang, c, level)))
                 n += 1
         if lap.valid and (st in QUALI) and lap_kind == 1:
             me_now = self.lap[self.player]
             if me_now and me_now['position']:
-                msgs.append(R.say(lang, 'provisional', pos=me_now['position']))
+                msgs.append(('provisional', R.say(lang, 'provisional', pos=me_now['position'])))
         if lap.valid and st not in RACE:
             tgt = self.target()
             if tgt and tgt.get('lap_ms') and (is_pb or len(self.player_laps) % 3 == 1):
                 d = lap.lap_ms - tgt['lap_ms']
                 key = 'target_gap_slow' if d > 0 else 'target_gap_fast'
-                msgs.append(R.say(lang, key, ai=tgt['ai'], d=R.fmt_delta(d, lang)))
+                msgs.append(('target', R.say(lang, key, ai=tgt['ai'], d=R.fmt_delta(d, lang))))
         if st in RACE:
             fuel_start = self.race.fuel_at_lap_start.get(lap.lap_num)
             self.strategy.on_player_lap(lap.lap_num, lap.lap_ms, lap.valid,
@@ -560,11 +582,24 @@ class Engine:
             self._undercut_check(lap.lap_num + 1)
         sp = regs_stats.get('straight_pct')
         if sp is not None and sp < 90 and regs_stats.get('aero_avail_m', 0) > 300:
-            msgs.append(R.say(lang, 'regs_straight_low', p=sp))
+            msgs.append(('regs_straight_low', R.say(lang, 'regs_straight_low', p=sp)))
         if st in RACE:
             msgs.extend(self._race_messages(lap.lap_num))
-        for m in msgs:
-            self.say(m)
+        for key, m in msgs:
+            if self.radio_ok(key):
+                self.say(m)
+
+    # ------------------------------------------------------------------ rádio: co se říká nahlas
+    def radio_mode(self):
+        return self.settings.get('radio_mode', 'quiet')
+
+    def radio_ok(self, key):
+        mode = self.radio_mode()
+        if mode == 'full':
+            return True
+        if key in RADIO_QUIET:
+            return True
+        return mode == 'normal' and key in RADIO_NORMAL
 
     # ------------------------------------------------------------------ nové moduly
     def _is_race(self):
@@ -701,6 +736,11 @@ class Engine:
         rookie = self.level <= 1
         for key, kw, urgent in events:
             if rookie and key in ('plan', 'box_next_lap', 'opp_ahead_old', 'tyre_temps', 'deg'):
+                continue
+            rkey = key
+            if key == 'damage' and kw.get('p', 0) < 25:
+                rkey = 'damage_minor'
+            if not self.radio_ok(rkey):
                 continue
             kw = dict(kw)
             if key == 'plan':
@@ -876,29 +916,32 @@ class Engine:
                 m = R.say(lang, key, r=R.fmt_delta(ta, lang), g=R.fmt_delta(ga, lang))
                 if ta < 0 and ga / -ta < 15:
                     m += ' ' + R.say(lang, 'catch_in', n=max(1, round(ga / -ta)))
-                out.append(m)
+                close = ta < 0 and ga / -ta <= 3
+                out.append(('gap_closing_close' if close else key, m))
             gb = self.race.gap_behind[-1] if self.race.gap_behind else None
             tb = g.get('behind_trend')
             if tb is not None and gb is not None and abs(tb) >= 100 and gb < 6000:
                 key = 'gap_behind_closing' if tb < 0 else 'gap_behind_dropping'
-                out.append(R.say(lang, key, r=R.fmt_delta(tb, lang), g=R.fmt_delta(gb, lang)))
+                out.append(('gap_behind_close' if tb < 0 and gb < 1500 else key,
+                            R.say(lang, key, r=R.fmt_delta(tb, lang), g=R.fmt_delta(gb, lang))))
         fuel = self._fuel()
         if fuel and lap_num % 3 == 0:
             fd = fuel['game_delta_laps']
             if fd < 0:
-                out.append(R.say(lang, 'fuel_low', d=('%.1f' % fd).replace('.', ',')
-                                 if lang == 'cs' else '%.1f' % fd))
+                out.append(('fuel_low', R.say(lang, 'fuel_low', d=('%.1f' % fd).replace('.', ',')
+                                              if lang == 'cs' else '%.1f' % fd)))
         status = self.status[self.player]
         if self.regs.active and status and lap_num % 4 == 0 and \
                 status['ers_store'] < 0.15 * 4.0e6:
-            out.append(R.say(lang, 'regs_battery_low',
-                             p=round(100 * status['ers_store'] / 4.0e6)))
+            out.append(('regs_battery_low', R.say(lang, 'regs_battery_low',
+                                                  p=round(100 * status['ers_store'] / 4.0e6))))
         tyres = self._tyres()
         if tyres and tyres.get('max_wear', 0) >= 50 and lap_num % 3 == 0:
             w = tyres['wear']
             wheel = max(w, key=w.get)
-            out.append(R.say(lang, 'tyre_wear', w=round(tyres['max_wear']),
-                             wheel=R.WHEEL_NAMES[lang][wheel]))
+            out.append(('tyre_wear_high' if tyres['max_wear'] >= 60 else 'tyre_wear',
+                        R.say(lang, 'tyre_wear', w=round(tyres['max_wear']),
+                              wheel=R.WHEEL_NAMES[lang][wheel])))
         return out
 
     def _fuel(self):
@@ -1082,7 +1125,8 @@ class Engine:
         with self.lock:
             allowed = {'lang', 'level', 'reference', 'difficulty_override', 'voice',
                        'gemini_key', 'gemini_model', 'engineer_name', 'wake_word', 'buttons',
-                       'voice_engine', 'tts_voice', 'groq_key', 'groq_model', 'chat_model'}
+                       'voice_engine', 'tts_voice', 'groq_key', 'groq_model', 'chat_model',
+                       'radio_mode'}
             for k, v in new.items():
                 if k in allowed:
                     if k in ('gemini_key', 'groq_key') and v == '***':

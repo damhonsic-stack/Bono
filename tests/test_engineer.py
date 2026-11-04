@@ -30,6 +30,7 @@ def trace_from_profile(errors=None, skill=0.93):
 def run_sim(mode='quali', laps=5, ai=95, seed=3, fmt=2025):
     eng = Engine(Storage(tempfile.mkdtemp()))
     eng.settings['lang'] = 'cs'
+    eng.settings['radio_mode'] = 'full'
     for _, pkt in SIM.generate(mode, laps=laps, ai=ai, seed=seed, fmt=fmt):
         eng.handle(pkt)
     return eng

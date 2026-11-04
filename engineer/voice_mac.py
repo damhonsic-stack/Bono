@@ -299,7 +299,7 @@ class MacVoice:
                 if m['id'] > self.last_msg_id:
                     self.last_msg_id = m['id']
                     if voice_on or m.get('prio') == 3:
-                        fut, path = self._synth(m['text'], lang)
+                        fut, path = self._synth(m.get('speech') or m['text'], lang)
                         item = (m, fut, path)
                         if m.get('urgent'):
                             pending.insert(0, item)
@@ -324,7 +324,7 @@ class MacVoice:
                 ok = os.path.exists(path) and os.path.getsize(path) > 0
             except Exception:  # noqa: BLE001 – bez internetu / Edge nedostupné
                 ok = False
-            self._play(path if ok else None, None if ok else m['text'], lang)
+            self._play(path if ok else None, None if ok else (m.get('speech') or m['text']), lang)
             try:
                 os.remove(path)
             except OSError:

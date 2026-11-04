@@ -123,7 +123,8 @@ def make_handler(engine, web_root):
                 key = engine.settings.get('gemini_key')
                 voice = engine.settings.get('tts_voice', 'Charon')
                 lang = engine.lang
-            wav = engine.tts.get(key, msg['text'], voice, lang) if (msg and key) else None
+            wav = engine.tts.get(key, msg.get('speech') or msg['text'], voice, lang) \
+                if (msg and key) else None
             if not wav:
                 self.send_response(204)
                 self.send_header('Content-Length', '0')

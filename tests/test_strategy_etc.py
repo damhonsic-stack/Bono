@@ -32,6 +32,7 @@ def lapd(**kw):
 def race_log(**kw):
     e = Engine(Storage(tempfile.mkdtemp()))
     e.settings['lang'] = 'en'
+    e.settings['radio_mode'] = kw.pop('radio_mode', 'full')
     log = []
     orig = e.say
 
@@ -288,7 +289,7 @@ class EngineIntegrationTests(unittest.TestCase):
 
     def test_say_prefetches_tts_only_for_non_urgent(self):
         e = Engine(Storage(tempfile.mkdtemp()))
-        e.settings.update(gemini_key='k', voice_engine='mixed')
+        e.settings.update(gemini_key='k', voice_engine='mixed', lang='en')
         got = []
         e.tts.prefetch = lambda key, text, voice, lang: got.append(text)
         e.say('lap report')
@@ -340,3 +341,34 @@ class RecapTests(unittest.TestCase):
         saved = e.storage.load_debriefs()[0]
         self.assertTrue(saved['summary']['recap']['ok'])
         self.assertIn('Losing most consistently', entry['text'])
+
+
+class RadioModeTests(unittest.TestCase):
+    def test_quiet_mode_only_important(self):
+        e, log = race_log(laps=20, pit_lap=12, sc_lap=6, damage_lap=4, penalty_lap=8, radio_mode='quiet')
+        texts = [t for _, _, t in log]
+        self.assertFalse(any(t.startswith(('Lap 0', 'Losing', 'Gap ahead', 'You only used',
+                                           'Overtake mode available')) for t in texts), texts)
+        for must in ('Box this lap', 'Safety car', '5 second penalty', 'Front wing damage'):
+            self.assertTrue(any(must in t for t in texts), must)
+        _, full = race_log(laps=20, pit_lap=12, sc_lap=6, damage_lap=4, penalty_lap=8)
+        self.assertLess(len(log), len(full) / 2)
+
+    def test_speech_text_stored(self):
+        e = Engine(Storage(tempfile.mkdtemp()))
+        e.settings['lang'] = 'cs'
+        e.say('Lap 0:58.806. Delta +0,47 s na referenci.')
+        self.assertEqual(e.messages[-1]['speech'], 'Kolo 58,8. O pět desetin pomaleji než reference.')
+
+
+class SpeechTests(unittest.TestCase):
+    def test_czech_phrases(self):
+        from engineer.speech import to_speech, cs_seconds
+        self.assertEqual(cs_seconds(0.47), 'pět desetin')
+        self.assertEqual(cs_seconds(0.04), 'čtyři setiny')
+        self.assertEqual(cs_seconds(1.0), 'jedna sekunda')
+        self.assertEqual(cs_seconds(1.47), '1,5 sekundy')
+        self.assertEqual(to_speech('V T4 ztrácíš 0,15 s.'), 'V zatáčce 4 ztrácíš dvě desetiny.')
+        self.assertEqual(to_speech('Vyjedeš na P4.'), 'Vyjedeš na pozici 4.')
+        self.assertEqual(to_speech('Dojedeš ho za 3 laps.'), 'Dojedeš ho za 3 kola.')
+        self.assertEqual(to_speech('Personal best! 1:21.345.'), 'Osobní rekord! 1 minuta 21,3.')

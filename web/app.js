@@ -785,7 +785,7 @@ const Radio = {
         const eng = (S && S.settings.voice_engine) || 'mixed';
         const useGemini = S && S.has_gemini && eng !== 'ios' && !m.urgent &&
           (eng === 'gemini' || m.prio >= 2) && !(S.tts && S.tts.available === false);
-        if (!(useGemini && await playGemini(m))) await speakIOS(m.text);
+        if (!(useGemini && await playGemini(m))) await speakIOS(m.speech || m.text);
       }
     } catch (_) { /* pokračuj */ }
     this.busy = false;
@@ -1075,6 +1075,7 @@ function fillSettings(s) {
   $('sName').value = st.engineer_name || 'Bono';
   $('sWake').value = st.wake_word || 'bono';
   $('sVoiceEngine').value = st.voice_engine || 'mixed';
+  $('sRadioMode').value = st.radio_mode || 'quiet';
   $('sTtsVoice').value = st.tts_voice || 'Charon';
   settingsLoaded = true;
 }
@@ -1086,6 +1087,7 @@ $('saveBtn').onclick = async () => {
     gemini_key: $('sKey').value.trim(), gemini_model: $('sModel').value.trim() || 'gemini-flash-lite-latest',
     engineer_name: $('sName').value.trim() || 'Bono', wake_word: ($('sWake').value.trim() || 'bono').toLowerCase(),
     voice_engine: $('sVoiceEngine').value, tts_voice: $('sTtsVoice').value,
+    radio_mode: $('sRadioMode').value,
     groq_key: $('sGroq').value.trim(),
   };
   await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
