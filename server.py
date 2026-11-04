@@ -10,6 +10,7 @@ sys.path.insert(0, HERE)
 from engineer.storage import Storage  # noqa: E402
 from engineer.state import Engine  # noqa: E402
 from engineer import web  # noqa: E402
+from engineer.cloud import CloudSync  # noqa: E402
 
 
 def main():
@@ -37,6 +38,10 @@ def main():
         else:
             mic = int(args.mic) if args.mic and args.mic.isdigit() else args.mic
             MacVoice(engine, mic=mic).start()
+    engine.cloud = CloudSync(engine)
+    engine.cloud.start()
+    if engine.settings.get('cloud_url'):
+        print('☁️  Bono Cloud: %s' % engine.settings['cloud_url'])
     udp = args.udp or engine.settings.get('udp_port', 20777)
     http = args.http or engine.settings.get('http_port', 8080)
     try:

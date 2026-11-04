@@ -89,6 +89,11 @@ function render() {
   if (s.listen_seq !== listenSeq) { listenSeq = s.listen_seq; Voice.listenNow(); }
   renderRegs(s);
   renderStrip(s);
+  const cl = s.cloud || {};
+  $('cloudStatus').textContent = !cl.enabled ? 'Cloud vypnutý' :
+    `${cl.status === 'ok' ? '✅ synchronizováno' : cl.status === 'error' ? '⚠️ ' + (cl.error || 'chyba') : '⏳ ' + cl.status}` +
+    (cl.last_push ? ` · poslední nahrání ${new Date(cl.last_push * 1000).toLocaleTimeString('cs-CZ')}` : '') +
+    (cl.pending ? ` · čeká ${cl.pending}` : '') + (s.memory ? ` · paměť: ${s.memory.notes} poznámek, ${s.memory.tracks} tratí` : '');
   $('muteBtn').textContent = s.settings.voice === false ? '🔊 Unmute' : '🔇 Mute';
   if (s.heard && s.heard.ts !== lastHeardTs) {        // přepis z mikrofonu Macu (Whisper)
     lastHeardTs = s.heard.ts;
@@ -1076,6 +1081,8 @@ function fillSettings(s) {
   $('sWake').value = st.wake_word || 'bono';
   $('sVoiceEngine').value = st.voice_engine || 'mixed';
   $('sRadioMode').value = st.radio_mode || 'quiet';
+  $('sCloudUrl').value = st.cloud_url || '';
+  $('sCloudCode').value = s.has_cloud_code ? '***' : '';
   $('sTtsVoice').value = st.tts_voice || 'Charon';
   settingsLoaded = true;
 }
@@ -1088,11 +1095,23 @@ $('saveBtn').onclick = async () => {
     engineer_name: $('sName').value.trim() || 'Bono', wake_word: ($('sWake').value.trim() || 'bono').toLowerCase(),
     voice_engine: $('sVoiceEngine').value, tts_voice: $('sTtsVoice').value,
     radio_mode: $('sRadioMode').value,
+    cloud_url: $('sCloudUrl').value.trim(), cloud_code: $('sCloudCode').value.trim(),
     groq_key: $('sGroq').value.trim(),
   };
   await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   $('saveBtn').textContent = 'Uloženo ✓';
   setTimeout(() => { $('saveBtn').textContent = 'Uložit'; }, 1500);
+};
+$('cloudSyncBtn').onclick = async () => {
+  $('saveBtn').click();
+  $('cloudSyncBtn').textContent = '⏳ Synchronizuji…';
+  setTimeout(async () => {
+    try {
+      const r = await (await fetch('/api/cloud/sync', { method: 'POST' })).json();
+      $('cloudSyncBtn').textContent = r.ok ? '✅ Hotovo' : '⚠️ ' + (r.error || 'chyba');
+    } catch (_) { $('cloudSyncBtn').textContent = '⚠️ chyba spojení'; }
+    setTimeout(() => { $('cloudSyncBtn').textContent = '☁️ Připojit a synchronizovat'; }, 4000);
+  }, 600);
 };
 $('resetCorners').onclick = async () => {
   await fetch('/api/reset_corners', { method: 'POST' });

@@ -19,6 +19,7 @@ from .setup import SetupAnalyzer
 from .tts import GeminiTTS
 from .constants import VISUAL_COMPOUND
 from .speech import to_speech
+from .memory import Memory
 
 REF_NAMES = {
     'cs': {'session_best': 'Session best', 'pb': 'Personal best',
@@ -77,6 +78,8 @@ class Engine:
         self.last_llm_error = None
         self.prev_buttons = 0
         self.tts = GeminiTTS()
+        self.memory = Memory(storage)
+        self.cloud = None            # CloudSync (nastaví server.py)
         self.presence = {}           # id zařízení -> (čas, má mikrofon) – kde běží „Start Bono“
         self.heard = None            # poslední přepis z mikrofonu Macu
         self.voice_status = None
@@ -1038,7 +1041,11 @@ class Engine:
                 'rate': round(self.packet_rate),
                 'warning': self.format_warning,
                 'settings': {k: v for k, v in self.settings.items()
-                             if k not in ('gemini_key', 'groq_key')},
+                             if k not in ('gemini_key', 'groq_key', 'cloud_code')},
+                'has_cloud_code': bool(self.settings.get('cloud_code')),
+                'cloud': self.cloud.snapshot() if self.cloud else {'enabled': False},
+                'memory': {'notes': len(self.memory.data.get('notes', [])),
+                           'tracks': len(self.memory.data.get('tracks', {}))},
                 'has_gemini': bool(self.settings.get('gemini_key')),
                 'has_groq': bool(self.settings.get('groq_key')),
                 'llm': {'model': self.last_llm_model, 'error': self.last_llm_error},
@@ -1126,10 +1133,10 @@ class Engine:
             allowed = {'lang', 'level', 'reference', 'difficulty_override', 'voice',
                        'gemini_key', 'gemini_model', 'engineer_name', 'wake_word', 'buttons',
                        'voice_engine', 'tts_voice', 'groq_key', 'groq_model', 'chat_model',
-                       'radio_mode'}
+                       'radio_mode', 'cloud_url', 'cloud_code'}
             for k, v in new.items():
                 if k in allowed:
-                    if k in ('gemini_key', 'groq_key') and v == '***':
+                    if k in ('gemini_key', 'groq_key', 'cloud_code') and v == '***':
                         continue
                     self.settings[k] = v
             self.storage.save_settings(self.settings)
@@ -1176,6 +1183,7 @@ class Engine:
             'corners_worst_first': corners[:8],
             'race': snap['race'],
             'regs_2026': snap['regs'],
+            'bono_memory': self.memory.context(self.track_id),
             'strategy': snap['strategy'],
             'cars_around': snap['around'],
             'incidents': snap['incidents'],

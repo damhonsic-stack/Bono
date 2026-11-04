@@ -372,3 +372,89 @@ class SpeechTests(unittest.TestCase):
         self.assertEqual(to_speech('Vyjedeš na P4.'), 'Vyjedeš na pozici 4.')
         self.assertEqual(to_speech('Dojedeš ho za 3 laps.'), 'Dojedeš ho za 3 kola.')
         self.assertEqual(to_speech('Personal best! 1:21.345.'), 'Osobní rekord! 1 minuta 21,3.')
+
+
+class CloudSyncTests(unittest.TestCase):
+    class FakeClient:
+        store = {}
+        code_hash = None
+
+        def __init__(self, url, code):
+            self.code = code
+
+        def auth(self):
+            c = CloudSyncTests.FakeClient
+            if c.code_hash is None:
+                c.code_hash = self.code
+            if c.code_hash != self.code:
+                from engineer.cloud import CloudError
+                raise CloudError('401 Špatný sync kód.')
+            return {'ok': True}
+
+        def get(self, key):
+            return CloudSyncTests.FakeClient.store.get(key)
+
+        def put(self, key, value):
+            import json as _j
+            CloudSyncTests.FakeClient.store[key] = _j.loads(_j.dumps(value))
+
+        def list(self, prefix=''):
+            return [k for k in CloudSyncTests.FakeClient.store if k.startswith(prefix)]
+
+    def setUp(self):
+        CloudSyncTests.FakeClient.store = {}
+        CloudSyncTests.FakeClient.code_hash = None
+
+    def make(self):
+        from engineer.cloud import CloudSync
+        e, _ = race_log(laps=8)
+        e.settings.update(cloud_url='https://bono.example', cloud_code='monza-bono-2026',
+                          gemini_key='SECRET-G', groq_key='SECRET-Q')
+        e.cloud = CloudSync(e, client_factory=CloudSyncTests.FakeClient)
+        return e
+
+    def test_full_sync_without_secrets(self):
+        e = self.make()
+        with e.lock:
+            summary = D.build_summary(e)
+        D.make_debrief(e, summary, 'en', key=None)
+        self.assertTrue(e.cloud.connect())
+        st = CloudSyncTests.FakeClient.store
+        for k in ('tracks/17', 'history/17', 'tracks_index', 'memory', 'calibration', 'settings/shared'):
+            self.assertIn(k, st)
+        self.assertTrue(any(k.startswith('debriefs/') for k in st))
+        self.assertEqual(st['tracks_index']['tracks'][0]['name'], 'Austria')
+        self.assertTrue(st['memory']['tracks']['17']['weak_turns'])
+        blob = __import__('json').dumps(st)
+        for secret in ('SECRET-G', 'SECRET-Q', 'monza-bono-2026'):
+            self.assertNotIn(secret, blob)
+
+    def test_pull_memory_and_settings_from_web(self):
+        e = self.make()
+        e.cloud.connect()
+        st = CloudSyncTests.FakeClient.store
+        mem = dict(st['memory'])
+        mem['notes'] = [{'text': 'ABS off', 'ts': 1}]
+        mem['updated'] = st['memory']['updated'] + 1000
+        st['memory'] = mem
+        st['settings/shared'] = {'updated': 10 ** 13, 'values': {'radio_mode': 'normal', 'gemini_key': 'x'}}
+        e.cloud.pull()
+        self.assertEqual(e.memory.data['notes'][0]['text'], 'ABS off')
+        self.assertEqual(e.settings['radio_mode'], 'normal')
+        self.assertEqual(e.settings['gemini_key'], 'SECRET-G')      # tajné klíče z cloudu nepřepíše
+
+    def test_wrong_code_reports_error(self):
+        e = self.make()
+        CloudSyncTests.FakeClient.code_hash = 'someone-else-code'
+        self.assertFalse(e.cloud.connect())
+        self.assertIn('401', e.cloud.snapshot()['error'])
+
+    def test_remember_command_goes_to_memory_and_llm_context(self):
+        e = self.make()
+        e.settings['lang'] = 'cs'
+        text, src = llm.answer(e, 'Bono, zapamatuj si, že jezdím s ABS off')
+        self.assertEqual(src, 'command')
+        self.assertIn('ABS off', e.memory.data['notes'][-1]['text'])
+        self.assertIn('jezdím s ABS off', e.context_for_llm()['bono_memory']['driver_notes'][-1])
+        llm.answer(e, 'Bono, zapomeň')
+        self.assertEqual(e.memory.data['notes'], [])

@@ -208,6 +208,29 @@ target / AI difficulty · say again · be quiet · talk to me · radio check*.
   Pozn.: studentské předplatné Gemini platí pro aplikaci Gemini, API klíč z AI Studia má vlastní free tier.
   Na free tieru může Google data použít ke zlepšování modelů. Posílají se ale jen čísla z telemetrie.
 
+## ☁️ Bono Cloud: web s pamětí na Netlify (zdarma)
+
+Historie, debriefy s recapem a mapou, rekordy tratí a **Bonova paměť** na všech zařízeních
+(mobil, iPad, jiný počítač). Bono na Macu všechno nahrává sám. Živý závod se dál dívá doma
+z Macu (Xbox posílá data jen do domácí sítě).
+
+**Nasazení (jednou, ~3 minuty):**
+1. Na <https://app.netlify.com> → **Add new site → Import an existing project → GitHub** → repozitář
+   **Bono** → větev **`f1-ai-engineer`**. Ostatní pole nech být, načtou se z `netlify.toml`.
+   Klikni **Deploy**.
+2. Volitelně: Site configuration → Change site name (např. `moje-bono` → `moje-bono.netlify.app`).
+3. Otevři web a **vymysli si sync kód** (min. 8 znaků). První zadání ho nastaví, pak ho zadáš
+   na každém zařízení.
+4. V Bonovi na Macu: **Settings → Bono Cloud**: adresa webu + stejný sync kód → **Uložit** →
+   **☁️ Připojit a synchronizovat**.
+
+Paměť Bona: řekni „**Bono, zapamatuj si, že …**“ (nebo „Bono, zapomeň“) nebo ji uprav na webu
+v záložce Paměť. Bono si po každém debriefu sám zapíše, kde na dané trati opakovaně ztrácíš.
+V závodě to pak použije („minule jsi tady ztrácel v T8“).
+
+Do cloudu se **nikdy neposílají** API klíče ani sync kód (na Netlify je jen jeho hash).
+Data jsou v Netlify Blobs tvého účtu.
+
 ## Testování bez Xboxu
 
 Simulátor posílá falešnou telemetrii (trať s 8 zatáčkami, ty + 5 AI, náhodné chyby jezdce):
@@ -222,7 +245,8 @@ python3 tools/simulator.py --mode race --laps 25 --pit-lap 14 --sc-lap 8 --damag
         --penalty-lap 6 --rain-in 12               # závod se vším: box, SC, damage, penalty, déšť
 ```
 
-Testy: `python3 -m unittest discover -s tests`
+Testy: `python3 -m unittest discover -s tests` a pro cloud `cd cloud && npm test`
+(lokální běh cloudu bez Netlify: `cd cloud && npm install && node dev-server.mjs`).
 
 ## Struktura
 

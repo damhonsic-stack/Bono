@@ -306,6 +306,14 @@
         <input id="sGroq" type="password" placeholder="nevyplněno = jen Gemini"></label>
       <label>Gemini model
         <input id="sModel" placeholder="gemini-flash-lite-latest"></label>
+      <hr>
+      <div class="label">☁️ Bono Cloud: paměť a historie mezi zařízeními</div>
+      <label>Adresa tvého Bono Cloud (Netlify)
+        <input id="sCloudUrl" placeholder="https://moje-bono.netlify.app"></label>
+      <label>Sync kód (vymysli si, min. 8 znaků; stejný zadáš na webu)
+        <input id="sCloudCode" type="password" placeholder="např. monza-bono-2026"></label>
+      <div class="row"><button id="cloudSyncBtn" class="ghost">☁️ Připojit a synchronizovat</button>
+        <span id="cloudStatus" class="small muted"></span></div>
       <div class="row">
         <button id="saveBtn">Uložit</button>
         <button id="resetCorners" class="ghost">Znovu detekovat zatáčky</button>

@@ -68,6 +68,15 @@ def build_summary(engine):
     out['incidents'].pop('log', None)
     from .recap import build_recap
     out['recap'] = build_recap(engine)
+    rc = out['recap']
+    if rc.get('ok'):
+        # „kde ztrácím“ z čistých kol (bez startu, boxů a out lapů) – stejné jako recap
+        by = {r['name']: r for r in rc['corners']}
+        out['worst_turns'] = [{'turn': h['turn'], 'avg_loss_ms': h['ms'],
+                               'tip': (by[h['turn']]['worst_tips'] or [None])[0]}
+                              for h in rc['highlights']['most_loss']]
+    out['track_id'] = engine.track_id
+    out['bono_memory'] = engine.memory.context(engine.track_id)
     return out
 
 
@@ -124,6 +133,11 @@ def make_debrief(engine, summary, lang='en', key=None, model=None, name='Bono'):
     entry = {'ts': int(time.time()), 'track': summary['track'], 'session': summary['session'],
              'text': text, 'source': src, 'summary': summary}
     engine.storage.append_debrief(entry)
+    try:
+        with engine.lock:
+            engine.memory.update_from_session(summary.get('track_id'), summary)
+    except Exception as e:  # noqa: BLE001
+        engine.last_llm_error = 'memory: %s' % e
     return entry
 
 

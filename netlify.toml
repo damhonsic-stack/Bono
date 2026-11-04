@@ -1,0 +1,17 @@
+# Bono Cloud – web s pamětí na Netlify (paměť: Netlify Blobs, API: Netlify Functions).
+# V Netlify: Add new site → Import from GitHub → repozitář Bono, větev f1-ai-engineer.
+# Ostatní nastavení se načte z tohoto souboru.
+[build]
+  base = "cloud"
+  publish = "site"
+  functions = "netlify/functions"
+  command = "echo 'Bono Cloud – bez build kroku'"
+
+[functions]
+  node_bundler = "esbuild"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "no-referrer"

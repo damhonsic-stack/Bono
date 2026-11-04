@@ -96,6 +96,11 @@ def make_handler(engine, web_root):
                 with engine.lock:
                     engine.heartbeat(data.get('id', '?'), data.get('mic'), data.get('name', ''))
                 return self._json({'ok': True})
+            if path == '/api/cloud/sync':
+                if not engine.cloud:
+                    return self._json({'ok': False, 'error': 'cloud off'})
+                ok = engine.cloud.connect()
+                return self._json({'ok': ok, **engine.cloud.snapshot()})
             if path == '/api/action':
                 action = data.get('action', '')
                 if action not in ('status', 'strategy', 'gaps', 'gap', 'tyres', 'fuel', 'damage',

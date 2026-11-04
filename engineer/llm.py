@@ -38,7 +38,9 @@ PRAVIDLA:
   pomalejší; rejoin = pozice po zastávce teď; stints deg_ms = degradace za lap. cars_around: auta kolem
   (gap ms, záporné = před jezdcem; pace_delta ms/lap, záporné = rychlejší). incidents: warnings, track
   limits, penalizace, damage %. weather.forecast: minuty dopředu + rain %. quali: stav a gap na trati.
-  setup_advice + car_balance (ratio >1,25 understeer, <0,8 oversteer).""",
+  setup_advice + car_balance (ratio >1,25 understeer, <0,8 oversteer).
+- bono_memory: co si pamatuješ o jezdci (driver_notes = co ti řekl, this_track = dřívější session,
+  nejlepší čas, opakovaně slabé zatáčky). Používej to přirozeně („minule jsi tady ztrácel v T8“).""",
     'en': """Your name is {name}. You are an F1 race engineer talking to your driver over team radio during the game F1 25.
 RULES:
 - Answer in English, max 2-3 short radio-style sentences. No bullet points, no markdown, no emoji.
@@ -62,6 +64,8 @@ RULES:
   (ms/lap, negative = faster than driver). incidents: warnings, track_limits, penalties, damage %.
   weather.forecast: minutes ahead + rain %. quali: driver status, gap on track (s). setup_advice +
   car_balance (ratio >1.25 understeer, <0.8 oversteer; entry/mid/exit and slow/medium/fast).
+- bono_memory: what you remember about the driver (driver_notes, this_track: sessions before,
+  best ever, recurring_weak_turns, last_session). Use it naturally ("last time here you lost in T8").
 - Speak like a real F1 race engineer: calm, short, precise.""",
 }
 
@@ -592,6 +596,19 @@ def answer(engine, question):
     question = strip_wake_word(question, engine.settings.get('wake_word', 'bono'))
     if not question:
         return R.say(engine.lang, 'cmd_radio_check'), 'command'
+    from .memory import REMEMBER_RE, FORGET_RE
+    m = REMEMBER_RE.match(question)
+    if m:
+        with engine.lock:
+            engine.memory.add_note(m.group(1))
+        return ('Zapamatováno: %s.' if engine.lang == 'cs' else 'Noted: %s.') % m.group(1).rstrip('.'), \
+            'command'
+    if FORGET_RE.match(question):
+        with engine.lock:
+            gone = engine.memory.forget_last()
+        if engine.lang == 'cs':
+            return ('Zapomněl jsem: %s.' % gone) if gone else 'Nemám nic k zapomenutí.', 'command'
+        return ('Forgot: %s.' % gone) if gone else 'Nothing to forget.', 'command'
     cmd = match_command(question)
     if cmd:
         with engine.lock:
